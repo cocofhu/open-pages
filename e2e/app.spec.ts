@@ -18,26 +18,6 @@ async function openHexoPreview(page: Page) {
   return { popup, failed };
 }
 
-async function openThemeStudio(page: Page) {
-  await page.getByTestId("btn-publish").click();
-  await expect(page.getByTestId("theme-studio")).toBeVisible();
-  await expect(page).toHaveURL(/#\/publish\/theme/);
-}
-
-async function waitThemePreview(page: Page, previousSrc?: string | null) {
-  await expect(page.getByTestId("theme-preview-frame")).toBeVisible({ timeout: 40_000 });
-  if (previousSrc) {
-    await expect(page.getByTestId("theme-preview-frame")).not.toHaveAttribute("src", previousSrc, {
-      timeout: 40_000,
-    });
-  }
-  await expect(page.getByTestId("theme-preview-loading")).toHaveCount(0, { timeout: 40_000 });
-  await expect(page.getByTestId("theme-preview-frame")).toHaveAttribute("src", /\/preview\/default\//);
-  await expect
-    .poll(async () => (await page.request.get("/preview/default/")).status(), { timeout: 40_000 })
-    .toBe(200);
-}
-
 test.describe("Open Pages editor", () => {
   test("loads the welcome post in the writing canvas", async ({ page }) => {
     await boot(page);
@@ -105,16 +85,37 @@ test.describe("Open Pages editor", () => {
     await expect(page.getByTestId("title-input")).toHaveValue("E2E Article");
   });
 
-  test("updates site settings in the drawer", async ({ page }) => {
+  test("opens a settings page with live theme preview", async ({ page }) => {
     await boot(page);
     await page.getByTestId("btn-settings").click();
+    await expect(page.getByTestId("settings-page")).toBeVisible();
+    await expect(page).toHaveURL(/#\/settings/);
+    await expect(page.getByTestId("theme-settings")).toBeVisible();
+    await expect(page.getByTestId("theme-landscape")).toHaveClass(/on/);
+    await expect(page.getByTestId("theme-setting-sidebar")).toBeVisible();
+    await expect(page.getByTestId("theme-preview-loading").or(page.getByTestId("theme-preview-frame"))).toBeVisible();
+
+    await page.getByTestId("settings-tab-site").click();
+    await expect(page).toHaveURL(/#\/settings\/site/);
     const title = page.getByTestId("cfg-title");
     await expect(title).toBeVisible();
     await expect(title).toHaveValue("Open Pages");
     await title.fill("E2E Site");
+    await expect(page.getByTestId("settings-save")).toBeEnabled();
+    await page.getByTestId("settings-save").click();
     await expect(page.getByTestId("sidebar-site-title")).toHaveText("E2E Site");
+
+    await page.getByTestId("settings-tab-theme").click();
+    await page.getByTestId("theme-next").click();
+    await expect(page.getByTestId("theme-next")).toHaveClass(/on/);
+    await expect(page.getByTestId("theme-settings")).toContainText("NexT");
+    await expect(page.getByTestId("theme-setting-color_scheme")).toBeVisible();
+    await expect(page.getByTestId("settings-save")).toBeEnabled();
+    await page.getByTestId("settings-save").click();
+    await expect(page.getByTestId("theme-preview-frame")).toBeVisible({ timeout: 60_000 });
+
     await page.getByTestId("settings-close").click();
-    await expect(page.getByTestId("settings-panel")).not.toBeVisible();
+    await expect(page.getByTestId("settings-page")).toHaveCount(0);
     await expect(page.getByTestId("title-input")).toBeVisible();
   });
 
@@ -135,40 +136,16 @@ test.describe("Open Pages editor", () => {
     await expect(page.getByTestId("toast")).toContainText(/新标签|Hexo 预览/);
   });
 
-  test("publish opens a theme page with a live Hexo preview", async ({ page }) => {
+  test("publish goes straight to GitHub", async ({ page }) => {
     await boot(page);
-    await openThemeStudio(page);
-    await waitThemePreview(page);
-    const frame = page.frameLocator("[data-testid=theme-preview-frame]");
-    await expect(frame.locator("body")).toContainText(/Hello Open Pages|Open Pages/);
-    await expect(frame.locator("#header")).toBeVisible();
-    await assertNoBrokenPreviewLinks(page);
-  });
-
-  for (const theme of ["cactus", "next"] as const) {
-    test(`theme studio can preview ${theme} before the next publish step`, async ({ page }) => {
-      await boot(page);
-      await openThemeStudio(page);
-      await waitThemePreview(page);
-      const previousSrc = await page.getByTestId("theme-preview-frame").getAttribute("src");
-      await page.getByTestId(`theme-${theme}`).click();
-      await expect(page.getByTestId(`theme-${theme}`)).toHaveClass(/on/);
-      await waitThemePreview(page, previousSrc);
-      await assertNoBrokenPreviewLinks(page);
-      await page.getByTestId("btn-publish-next").click();
-      await expect(page.getByTestId("publish-page")).toBeVisible();
-      await expect(page).toHaveURL(/#\/publish\/github/);
-    });
-  }
-
-  test("theme next step goes to GitHub publish", async ({ page }) => {
-    await boot(page);
-    await openThemeStudio(page);
-    await page.getByTestId("btn-publish-next").click();
+    await page.getByTestId("btn-publish").click();
     await expect(page.getByTestId("publish-page")).toBeVisible();
+    await expect(page).toHaveURL(/#\/publish\/github/);
     await expect(page.getByTestId("publish-page")).toContainText("GitHub Pages");
     await expect(page.getByTestId("publish-login")).toBeVisible();
+    await expect(page.getByTestId("theme-studio")).toHaveCount(0);
     await page.getByTestId("publish-back").click();
-    await expect(page.getByTestId("theme-studio")).toBeVisible();
+    await expect(page.getByTestId("publish-page")).toHaveCount(0);
+    await expect(page.getByTestId("title-input")).toBeVisible();
   });
 });

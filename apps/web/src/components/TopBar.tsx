@@ -1,4 +1,12 @@
+import {
+  Bars3CenterLeftIcon,
+  CodeBracketIcon,
+  EyeIcon,
+  PencilSquareIcon,
+  RocketLaunchIcon,
+} from "@heroicons/react/24/outline";
 import type { AuthUser } from "../lib/api";
+import { GitHubMark } from "./GitHubMark";
 
 export type EditorMode = "wysiwyg" | "source";
 
@@ -33,7 +41,8 @@ export function TopBar({
     <header className="topbar">
       <div className="top-left">
         {!sidebarOpen && (
-          <button type="button" className="ghost" data-testid="btn-sidebar" onClick={onToggleSidebar}>
+          <button type="button" className="ghost icon-label" data-testid="btn-sidebar" onClick={onToggleSidebar}>
+            <Bars3CenterLeftIcon className="ui-icon" aria-hidden="true" />
             目录
           </button>
         )}
@@ -43,9 +52,10 @@ export function TopBar({
             role="tab"
             data-testid="btn-write"
             aria-selected={mode === "wysiwyg"}
-            className={mode === "wysiwyg" ? "on" : ""}
+            className={mode === "wysiwyg" ? "on icon-label" : "icon-label"}
             onClick={() => onMode("wysiwyg")}
           >
+            <PencilSquareIcon className="ui-icon" aria-hidden="true" />
             写作
           </button>
           <button
@@ -53,9 +63,10 @@ export function TopBar({
             role="tab"
             data-testid="btn-source"
             aria-selected={mode === "source"}
-            className={mode === "source" ? "on" : ""}
+            className={mode === "source" ? "on icon-label" : "icon-label"}
             onClick={() => onMode("source")}
           >
+            <CodeBracketIcon className="ui-icon" aria-hidden="true" />
             源码
           </button>
         </div>
@@ -63,12 +74,13 @@ export function TopBar({
       <div className="top-actions">
         <button
           type="button"
-          className="ghost"
+          className="ghost icon-label"
           data-testid="btn-preview"
           disabled={previewing || !online}
           title={online ? "用 Hexo 渲染并在新标签打开" : "预览需要联网"}
           onClick={onPreview}
         >
+          <EyeIcon className="ui-icon" aria-hidden="true" />
           {previewing ? "生成中…" : "预览"}
         </button>
         {user?.login ? (
@@ -81,16 +93,18 @@ export function TopBar({
         ) : (
           <button
             type="button"
-            className="ghost"
+            className="ghost icon-label"
             data-testid="btn-login"
             onClick={onLogin}
             disabled={user !== null && !user.githubEnabled}
             title={user && !user.githubEnabled ? "在 apps/api/.env 配置 GitHub OAuth" : "使用 GitHub 登录"}
           >
+            <GitHubMark className="ui-icon" />
             GitHub
           </button>
         )}
-        <button type="button" className="primary" data-testid="btn-publish" onClick={onPublish}>
+        <button type="button" className="primary icon-label" data-testid="btn-publish" onClick={onPublish}>
+          <RocketLaunchIcon className="ui-icon" aria-hidden="true" />
           发布
         </button>
       </div>

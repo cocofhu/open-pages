@@ -1,4 +1,32 @@
-export const THEMES = ["landscape", "cactus", "next"] as const;
+export {
+  defaultThemeSettings,
+  isThemeConfigPath,
+  parseThemeSettings,
+  resolvedColorScheme,
+  serializeThemeSettings,
+  themeConfigPath,
+  themeSettingFields,
+  type ThemeSettingField,
+  type ThemeSettingValue,
+  type ThemeSettings,
+} from "./theme-settings.js";
+import { isThemeConfigPath } from "./theme-settings.js";
+
+export const THEMES = [
+  "landscape",
+  "cactus",
+  "next",
+  "kaze",
+  "stellar",
+  "reimu",
+  "particlex",
+  "stun",
+  "white",
+  "tranquility",
+  "async",
+  "apollo",
+  "inside",
+] as const;
 export type ThemeId = (typeof THEMES)[number];
 
 export const THEME_META: Record<
@@ -19,6 +47,56 @@ export const THEME_META: Record<
     label: "NexT",
     packageName: "hexo-theme-next",
     description: "功能完整的博客主题",
+  },
+  kaze: {
+    label: "Kaze",
+    packageName: "hexo-theme-kaze",
+    description: "轻盈清爽的日系风格",
+  },
+  stellar: {
+    label: "Stellar",
+    packageName: "hexo-theme-stellar",
+    description: "优雅强大，适合知识笔记",
+  },
+  reimu: {
+    label: "Reimu",
+    packageName: "hexo-theme-reimu",
+    description: "灵梦风格，活泼灵动",
+  },
+  particlex: {
+    label: "ParticleX",
+    packageName: "hexo-theme-particlex",
+    description: "粒子背景，视觉感强",
+  },
+  stun: {
+    label: "Stun",
+    packageName: "hexo-theme-stun",
+    description: "漂亮简洁的博客主题",
+  },
+  white: {
+    label: "White",
+    packageName: "hexo-theme-white",
+    description: "极简白净，干净利落",
+  },
+  tranquility: {
+    label: "Tranquility",
+    packageName: "hexo-theme-tranquility",
+    description: "致远，适合个人主页",
+  },
+  async: {
+    label: "Async",
+    packageName: "hexo-theme-async",
+    description: "轻量现代，注重阅读",
+  },
+  apollo: {
+    label: "Apollo",
+    packageName: "hexo-theme-apollo",
+    description: "受 vuejs.org 启发的极简风",
+  },
+  inside: {
+    label: "Inside",
+    packageName: "hexo-theme-inside",
+    description: "扁平 SPA，干净利落",
   },
 };
 
@@ -108,7 +186,7 @@ export function slugify(input: string): string {
 
 export function fileKind(path: string): FileKind {
   const normalized = path.replaceAll("\\", "/");
-  if (normalized === "_config.yml") return "config";
+  if (normalized === "_config.yml" || isThemeConfigPath(normalized)) return "config";
   if (/\.(png|jpe?g|gif|webp|svg)$/i.test(normalized)) return "image";
   if (normalized.startsWith("source/_posts/")) return "post";
   if (normalized.startsWith("source/_drafts/")) return "draft";
@@ -119,7 +197,7 @@ export function fileKind(path: string): FileKind {
 export function isUserEditablePath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/");
   if (normalized.includes("..")) return false;
-  if (normalized === "_config.yml") return true;
+  if (normalized === "_config.yml" || isThemeConfigPath(normalized)) return true;
   return (
     normalized.startsWith("source/") &&
     !normalized.startsWith("source/_data/") &&
@@ -248,11 +326,11 @@ subtitle: ${yamlQuote(config.subtitle)}
 description: ${yamlQuote(config.description)}
 keywords:
 author: ${yamlQuote(config.author)}
-language: ${config.language}
+language: ${yamlQuote(config.language)}
 timezone: ${yamlQuote(config.timezone)}
-url: ${config.url}
-root: ${config.root}
-permalink: ${config.permalink}
+url: ${yamlQuote(config.url)}
+root: ${yamlQuote(config.root)}
+permalink: ${yamlQuote(config.permalink)}
 permalink_defaults:
 pretty_urls:
   trailing_index: true
@@ -294,6 +372,8 @@ index_generator:
   path: ''
   per_page: 10
   order_by: -date
+topindex_generator:
+  per_page: 10
 default_category: uncategorized
 category_map:
 tag_map:
@@ -307,6 +387,9 @@ include:
 exclude:
 ignore:
 theme: ${config.theme}
+marked:
+  dompurify: true
+  sanitizeUrl: true
 feed:
   enable: true
   type: atom

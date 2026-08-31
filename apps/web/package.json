@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@milkdown/crepe": "^7.22.1",
     "@open-pages/shared": "workspace:*",
     "idb": "^8.0.3",

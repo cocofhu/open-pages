@@ -6,7 +6,7 @@ Typora 风格的 Web Markdown 编辑器：本地/离线写稿，服务端用白�
 
 - 所见即所得写作（Milkdown Crepe）+ 源码模式
 - 文章 / 草稿 / 页面 / 图片，IndexedDB 持久化，PWA 离线可用
-- `_config.yml` 可视化配置，主题仅允许 `landscape` / `cactus` / `next`
+- `_config.yml` 可视化配置，主题仅允许白名单：`landscape` / `cactus` / `next` / `kaze` / `stellar` / `reimu` / `particlex` / `stun` / `white` / `tranquility` / `async` / `apollo` / `inside`
 - Hexo 真实预览（不是前端 Markdown 渲染）
 - GitHub OAuth，选择或创建仓库后一键发布
 
