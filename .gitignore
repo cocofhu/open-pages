@@ -1,0 +1,15 @@
+node_modules
+dist
+.turbo
+.env
+.env.local
+*.log
+workspaces
+.DS_Store
+apps/web/dev-dist
+apps/api/workspaces
+.vite
+.cache
+test-results
+playwright-report
+blob-report

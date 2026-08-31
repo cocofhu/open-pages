@@ -1,0 +1,21 @@
+{
+  "name": "open-pages",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "type": "module",
+  "description": "Typora-like Markdown editor with Hexo preview and GitHub Pages publish.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @open-pages/api --filter @open-pages/web dev",
+    "build": "pnpm --filter @open-pages/shared build && pnpm --filter @open-pages/hexo-runner build && pnpm --filter @open-pages/api build && pnpm --filter @open-pages/web build",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
