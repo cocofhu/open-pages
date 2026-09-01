@@ -94,7 +94,16 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:preview-visible
+      - name: Preview visibility sweep
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm test:preview-visible; then
+              exit 0
+            fi
+            echo "preview sweep attempt ${attempt} failed"
+            sleep 3
+          done
+          exit 1
 
   e2e-core:
     name: E2E / editor

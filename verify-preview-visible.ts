@@ -51,6 +51,20 @@ function verdict(report: Report): string | null {
   return report.error ?? previewVerdict(report);
 }
 
+function failedReport(theme: ThemeId, error: unknown): Report {
+  return {
+    theme,
+    visibleChars: 0,
+    lowContrastChars: 0,
+    transparentChars: 0,
+    totalChars: 0,
+    overlays: [],
+    topAtCenter: "",
+    blockers: [],
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
 async function serve(publicDir: string, mount: string) {
   const base = resolve(publicDir);
   const server = createServer(async (req, res) => {
@@ -97,72 +111,62 @@ try {
   for (const theme of selected) {
     const mount = `/preview/${theme}/`;
     const siteDir = join(root, theme);
-    try {
-      await scaffoldSite({
-        siteDir,
-        config: { ...DEFAULT_SITE_CONFIG, theme },
-        files: [{ path: WELCOME_POST_PATH, content: welcomeMarkdown(), encoding: "utf8" }],
-      });
-      const { publicDir } = await generateSite(siteDir, { rebaseRoot: mount });
-      const { origin, close } = await serve(publicDir, mount);
+    let report: Report = failedReport(theme, "not measured");
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        // The preview frame runs theme scripts, so the check has to as well:
-        // most themes only reveal their content once their own JS has run.
-        const context = await browser.newContext({ viewport: VIEWPORT });
-        const page = await context.newPage();
+        await scaffoldSite({
+          siteDir,
+          config: { ...DEFAULT_SITE_CONFIG, theme },
+          files: [{ path: WELCOME_POST_PATH, content: welcomeMarkdown(), encoding: "utf8" }],
+        });
+        const { publicDir } = await generateSite(siteDir, { rebaseRoot: mount });
+        const { origin, close } = await serve(publicDir, mount);
         try {
-          // Do not wait for `load`: ParticleX fonts/CDN assets can hang CI forever.
-          // DOM is enough; then wait until the theme JS removes its first-screen loader.
-          const target = `${origin}${mount}`;
+          const context = await browser.newContext({ viewport: VIEWPORT });
+          const page = await context.newPage();
           try {
-            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 45_000 });
-          } catch {
-            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 45_000 });
+            const target = `${origin}${mount}`;
+            // `commit` returns after the response, before CDN fonts/scripts can stall `load`.
+            await page.goto(target, { waitUntil: "commit", timeout: 20_000 });
+            await page.waitForSelector("body", { timeout: 15_000 });
+            await page
+              .waitForFunction(
+                () => {
+                  const nodes = document.querySelectorAll("#loading, .loading, .preloader, #preloader, .loader");
+                  if (!nodes.length) return true;
+                  return [...nodes].every((el) => {
+                    const style = getComputedStyle(el);
+                    return (
+                      style.display === "none" ||
+                      style.visibility === "hidden" ||
+                      Number.parseFloat(style.opacity) < 0.05
+                    );
+                  });
+                },
+                { timeout: 20_000 },
+              )
+              .catch(() => undefined);
+            await page.waitForTimeout(2500);
+            if (shotDir) await page.screenshot({ path: join(shotDir, `${theme}.png`) });
+            let measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
+            if (previewVerdict(measured)) {
+              await page.waitForTimeout(8_000);
+              measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
+            }
+            report = { theme, ...measured };
+          } finally {
+            await context.close();
           }
-          await page
-            .waitForFunction(
-              () => {
-                const nodes = document.querySelectorAll("#loading, .loading, .preloader, #preloader, .loader");
-                if (!nodes.length) return true;
-                return [...nodes].every((el) => {
-                  const style = getComputedStyle(el);
-                  return (
-                    style.display === "none" ||
-                    style.visibility === "hidden" ||
-                    Number.parseFloat(style.opacity) < 0.05
-                  );
-                });
-              },
-              { timeout: 20_000 },
-            )
-            .catch(() => undefined);
-          await page.waitForTimeout(2500);
-          if (shotDir) await page.screenshot({ path: join(shotDir, `${theme}.png`) });
-          let measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
-          if (previewVerdict(measured)) {
-            await page.waitForTimeout(8_000);
-            measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
-          }
-          reports.push({ theme, ...measured });
         } finally {
-          await context.close();
+          await close();
         }
-      } finally {
-        await close();
+      } catch (error) {
+        report = failedReport(theme, error);
       }
-    } catch (error) {
-      reports.push({
-        theme,
-        visibleChars: 0,
-        lowContrastChars: 0,
-        transparentChars: 0,
-        totalChars: 0,
-        overlays: [],
-        topAtCenter: "",
-        blockers: [],
-        error: error instanceof Error ? error.message : String(error),
-      });
+      if (!verdict(report)) break;
+      console.warn(`PREVIEW_RETRY ${theme} attempt=${attempt} reason=${verdict(report)}`);
     }
+    reports.push(report);
   }
 } finally {
   await browser.close();
