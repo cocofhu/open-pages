@@ -124,6 +124,10 @@ const FAVICON_PNG = Buffer.from(
   "base64",
 );
 
+function resolvedHexoVersion(): string {
+  return require("hexo/package.json").version as string;
+}
+
 async function writeSiteManifest(
   siteDir: string,
   theme: ThemeId,
@@ -135,7 +139,9 @@ async function writeSiteManifest(
       {
         name: "open-pages-site",
         private: true,
-        hexo: {},
+        // Match the installed Hexo version so init's update_package is a no-op
+        // and does not need to rewrite package.json inside the sandboxed worker.
+        hexo: { version: resolvedHexoVersion() },
         dependencies: siteDependencies(theme, disabledPlugins),
       },
       null,
@@ -660,7 +666,10 @@ function workerPermissionArgs(
   }
   const permissionFlag =
     Number(process.versions.node.split(".")[0]) >= 22 ? "--permission" : "--experimental-permission";
-  const writeRoots = [resolve(siteDir, publicRel), resolve(siteDir, "db.json"), tmpdir()];
+  // Hexo-fs always mkdir()s the parent before writing a file, so the site root
+  // itself must be writable for db.json / package.json. Writes outside the site
+  // and tmpdir remain denied.
+  const writeRoots = [siteDir, resolve(siteDir, publicRel), tmpdir()];
   return [
     permissionFlag,
     ...[...readRoots].map((path) => `--allow-fs-read=${path}`),
