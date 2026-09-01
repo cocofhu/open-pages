@@ -64,19 +64,51 @@ fn node_sidecar_name() -> &'static str {
     }
 }
 
-fn resolve_node_binary() -> Result<PathBuf, String> {
+fn resolve_node_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    let name = node_sidecar_name();
+    let mut candidates = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let sidecar = dir.join(node_sidecar_name());
-            if sidecar.exists() {
-                return Ok(sidecar);
-            }
+            candidates.push(dir.join(name));
         }
+    }
+    if let Ok(resource) = app.path().resource_dir() {
+        candidates.push(resource.join(name));
+        if let Some(parent) = resource.parent() {
+            candidates.push(parent.join(name));
+            candidates.push(parent.join("MacOS").join(name));
+        }
+    }
+    if let Some(found) = candidates.into_iter().find(|path| path.exists()) {
+        return Ok(found);
     }
     if command_exists("node") {
         return Ok(PathBuf::from("node"));
     }
-    Err("Node.js runtime not found. Reinstall Open Pages or install Node.js 20+.".into())
+    Err("Node.js runtime not found. Reinstall Open Pages 0.1.1 or later.".into())
+}
+
+fn open_in_browser(app: &AppHandle, url: &str) -> Result<(), String> {
+    if app.opener().open_url(url, None::<&str>).is_ok() {
+        return Ok(());
+    }
+    let mut command = if cfg!(target_os = "windows") {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "start", "", url]);
+        cmd
+    } else if cfg!(target_os = "macos") {
+        let mut cmd = Command::new("open");
+        cmd.arg(url);
+        cmd
+    } else {
+        let mut cmd = Command::new("xdg-open");
+        cmd.arg(url);
+        cmd
+    };
+    command
+        .spawn()
+        .map_err(|error| format!("failed to open browser: {error}"))?;
+    Ok(())
 }
 
 fn command_exists(name: &str) -> bool {
@@ -94,11 +126,27 @@ fn tsx_entry(bundle_dir: &Path) -> PathBuf {
     bundle_dir.join("node_modules/tsx/dist/cli.mjs")
 }
 
-fn spawn_runtime(child: Child) -> Result<(), String> {
-    wait_for_health()?;
-    let mut slot = RUNTIME.lock().map_err(|error| error.to_string())?;
-    *slot = Some(child);
-    Ok(())
+fn spawn_runtime(mut child: Child) -> Result<(), String> {
+    for _ in 0..50 {
+        if std::net::TcpStream::connect_timeout(
+            &"127.0.0.1:3848"
+                .parse::<std::net::SocketAddr>()
+                .map_err(|error| error.to_string())?,
+            Duration::from_millis(150),
+        )
+        .is_ok()
+        {
+            let mut slot = RUNTIME.lock().map_err(|error| error.to_string())?;
+            *slot = Some(child);
+            return Ok(());
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            return Err(format!("desktop runtime exited before becoming ready ({status})"));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let _ = child.kill();
+    Err("desktop runtime did not become ready".into())
 }
 
 fn start_runtime_dev() -> Result<(), String> {
@@ -126,7 +174,7 @@ fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
     if !script.exists() {
         return Err(format!("desktop runtime missing: {}", script.display()));
     }
-    let node = resolve_node_binary()?;
+    let node = resolve_node_binary(app)?;
     let tsx = tsx_entry(&bundle_dir);
     if !tsx.exists() {
         return Err(format!("desktop runtime missing tsx: {}", tsx.display()));
@@ -160,23 +208,6 @@ fn start_runtime() -> Result<(), String> {
     } else {
         start_runtime_release(app_handle()?)
     }
-}
-
-fn wait_for_health() -> Result<(), String> {
-    for _ in 0..50 {
-        if std::net::TcpStream::connect_timeout(
-            &"127.0.0.1:3848"
-                .parse::<std::net::SocketAddr>()
-                .map_err(|error| error.to_string())?,
-            Duration::from_millis(150),
-        )
-        .is_ok()
-        {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    Err("desktop runtime did not become ready".into())
 }
 
 fn stop_runtime() {
@@ -233,12 +264,7 @@ async fn github_login(app: tauri::AppHandle) -> Result<AuthUser, String> {
             "GitHub Client ID is missing in this build. Reinstall a release built with OPEN_PAGES_GITHUB_CLIENT_ID, or set GITHUB_CLIENT_ID before launching.".into(),
         );
     }
-    let session = github_auth::login(|url| {
-        app.opener()
-            .open_url(url, None::<&str>)
-            .map_err(|error| error.to_string())
-    })
-    .await?;
+    let session = github_auth::login(|url| open_in_browser(&app, url)).await?;
     Ok(AuthUser {
         guest_id: "desktop".into(),
         login: session.login,

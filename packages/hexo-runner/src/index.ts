@@ -559,7 +559,28 @@ async function ensureMarkedSanitize(siteDir: string): Promise<void> {
 }
 
 function workerEnv(): NodeJS.ProcessEnv {
-  const allow = ["PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TMP", "TEMP", "USER", "LOGNAME"];
+  const allow = [
+    "PATH",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "USER",
+    "LOGNAME",
+  ];
   const env: NodeJS.ProcessEnv = {
     NODE_ENV: process.env.NODE_ENV ?? "production",
     NODE_PATH: runnerNodeModules,

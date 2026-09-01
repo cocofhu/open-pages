@@ -7,14 +7,19 @@ import {
 } from "@open-pages/shared";
 import { api, type AuthUser, type GithubRepo, type InstallStep } from "./api";
 import type { PublishRepoCheck } from "@open-pages/shared";
+import { errorMessage } from "./errors";
 
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-  return tauriInvoke<T>(command, args);
+  try {
+    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+    return await tauriInvoke<T>(command, args);
+  } catch (error) {
+    throw new Error(errorMessage(error, `${command} failed`));
+  }
 }
 
 export const platform = {
