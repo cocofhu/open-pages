@@ -136,10 +136,10 @@ try {
               { timeout: 20_000 },
             )
             .catch(() => undefined);
-          await page.waitForTimeout(800);
+          await page.waitForTimeout(2500);
           if (shotDir) await page.screenshot({ path: join(shotDir, `${theme}.png`) });
           let measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
-          if (previewVerdict(measured)?.startsWith("overlay")) {
+          if (previewVerdict(measured)) {
             await page.waitForTimeout(8_000);
             measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
           }
