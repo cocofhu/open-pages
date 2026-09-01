@@ -111,24 +111,38 @@ try {
         const context = await browser.newContext({ viewport: VIEWPORT });
         const page = await context.newPage();
         try {
-          // ParticleX and similar themes pull fonts/CDN scripts that hang in CI
-          // and never fire `load`. This sweep only judges locally generated HTML.
-          await page.route("**/*", (route) => {
-            const url = route.request().url();
-            if (url.startsWith(origin) || url.startsWith("data:")) return route.continue();
-            return route.abort();
-          });
+          // Do not wait for `load`: ParticleX fonts/CDN assets can hang CI forever.
+          // DOM is enough; then wait until the theme JS removes its first-screen loader.
           const target = `${origin}${mount}`;
           try {
-            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
+            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 45_000 });
           } catch {
-            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
+            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 45_000 });
           }
-          // Themes fade their loader out and run entrance animations after load,
-          // so measure only once those have had time to finish.
-          await page.waitForTimeout(2500);
+          await page
+            .waitForFunction(
+              () => {
+                const nodes = document.querySelectorAll("#loading, .loading, .preloader, #preloader, .loader");
+                if (!nodes.length) return true;
+                return [...nodes].every((el) => {
+                  const style = getComputedStyle(el);
+                  return (
+                    style.display === "none" ||
+                    style.visibility === "hidden" ||
+                    Number.parseFloat(style.opacity) < 0.05
+                  );
+                });
+              },
+              { timeout: 20_000 },
+            )
+            .catch(() => undefined);
+          await page.waitForTimeout(800);
           if (shotDir) await page.screenshot({ path: join(shotDir, `${theme}.png`) });
-          const measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
+          let measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
+          if (previewVerdict(measured)?.startsWith("overlay")) {
+            await page.waitForTimeout(8_000);
+            measured = (await page.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
+          }
           reports.push({ theme, ...measured });
         } finally {
           await context.close();

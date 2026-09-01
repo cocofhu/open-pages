@@ -84,7 +84,7 @@ jobs:
     name: Preview / browser visibility sweep
     needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
