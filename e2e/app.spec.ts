@@ -168,11 +168,16 @@ test.describe("Open Pages editor", () => {
     await expect(title).toBeVisible();
     await expect(title).toHaveValue("Open Pages");
     await title.fill("E2E Site");
-    // Use a tiny data URI so Stellar's img onerror does not replace a broken
-    // remote URL with the theme placeholder before the assertion runs.
-    const avatarDataUri =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-    await page.getByTestId("cfg-avatar").fill(avatarDataUri);
+    const avatarBuffer = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    await page.getByTestId("cfg-avatar-file").setInputFiles({
+      name: "avatar.png",
+      mimeType: "image/png",
+      buffer: avatarBuffer,
+    });
+    await expect(page.getByTestId("cfg-avatar-clear")).toBeVisible();
     await expect(page.getByTestId("settings-save")).toBeEnabled();
     await page.getByTestId("settings-save").click();
     await expect(page.getByTestId("sidebar-site-title")).toHaveText("E2E Site");
@@ -188,9 +193,9 @@ test.describe("Open Pages editor", () => {
             .first()
             .getAttribute("src")
             .catch(() => null),
-        { timeout: 60_000, message: "Stellar did not use the configured avatar" },
+        { timeout: 60_000, message: "Stellar did not use the uploaded avatar" },
       )
-      .toBe(avatarDataUri);
+      .toMatch(/avatar\.png/);
 
     await page.getByTestId("theme-next").click();
     await expect(page.getByTestId("theme-next")).toHaveClass(/on/);
