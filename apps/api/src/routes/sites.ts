@@ -29,11 +29,13 @@ import { createConcurrencyGate, createRateLimiter, requestIp } from "../lib/rate
 
 export const siteRoutes = new Hono<{ Variables: { session: SessionData } }>();
 
-const previewLimiter = createRateLimiter({ windowMs: 60_000, max: 8 });
-const previewIpLimiter = createRateLimiter({ windowMs: 60_000, max: 8 });
+// Settings studio regenerates on every theme/option change; keep headroom for
+// a full built-in theme sweep (and CI shards) inside one minute.
+const previewLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
+const previewIpLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 const publishLimiter = createRateLimiter({ windowMs: 60_000, max: 3 });
 const publishIpLimiter = createRateLimiter({ windowMs: 60_000, max: 3 });
-const generateGate = createConcurrencyGate(2, 8);
+const generateGate = createConcurrencyGate(2, 16);
 
 function siteIdParam(c: { req: { param: (name: string) => string } }): string {
   const siteId = c.req.param("siteId");
