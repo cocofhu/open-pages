@@ -61,7 +61,7 @@ sudo apt install pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev librsvg2-dev libs
 | Homepage URL | `https://open-pages.local` |
 | Authorization callback URL | `http://127.0.0.1:3847/auth/callback` |
 
-客户端只用 **Client ID**，用 PKCE 换 Token，**不需要 Client Secret**。
+桌面端用 GitHub **Device Flow** 登录（只需 Client ID，不需要 Client Secret）。浏览器会打开设备授权页，按页面提示输入一次性代码即可。
 
 ```bash
 cp apps/desktop/.env.example apps/desktop/.env

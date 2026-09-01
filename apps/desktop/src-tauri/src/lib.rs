@@ -140,8 +140,13 @@ fn command_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn tsx_entry(bundle_dir: &Path) -> PathBuf {
-    bundle_dir.join("node_modules/tsx/dist/cli.mjs")
+fn runtime_entry(bundle_dir: &Path) -> PathBuf {
+    let js = bundle_dir.join("runtime/host.js");
+    if js.exists() {
+        js
+    } else {
+        bundle_dir.join("runtime/host.ts")
+    }
 }
 
 fn spawn_runtime(mut child: Child) -> Result<(), String> {
@@ -188,17 +193,12 @@ fn start_runtime_dev() -> Result<(), String> {
 
 fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
     let bundle_dir = bundled_runtime_dir(app)?;
-    let script = bundle_dir.join("runtime/host.ts");
+    let script = runtime_entry(&bundle_dir);
     if !script.exists() {
         return Err(format!("desktop runtime missing: {}", script.display()));
     }
     let node = resolve_node_binary(app)?;
-    let tsx = tsx_entry(&bundle_dir);
-    if !tsx.exists() {
-        return Err(format!("desktop runtime missing tsx: {}", tsx.display()));
-    }
     let child = Command::new(node)
-        .arg(&tsx)
         .arg(&script)
         .current_dir(&bundle_dir)
         .env("OPEN_PAGES_CONTROL_PORT", "3848")
