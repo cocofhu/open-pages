@@ -775,6 +775,8 @@ async function polishPublicDir(publicDir: string, rebaseRoot?: string): Promise<
     }
     await writeFile(abs, text);
   }
+  // GitHub Pages legacy deploys skip Jekyll only when this file is present.
+  await writeFile(join(root, ".nojekyll"), "");
 }
 
 const PREVIEW_CHROME_CSS = `

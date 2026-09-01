@@ -1,0 +1,115 @@
+name: Desktop
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop.yml"
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+
+jobs:
+  build:
+    name: Build / ${{ matrix.label }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    permissions:
+      contents: ${{ startsWith(github.ref, 'refs/tags/v') && 'write' || 'read' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x64
+            platform: windows-latest
+            args: ""
+          - label: macos-arm64
+            platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - label: macos-x64
+            platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Require GitHub Client ID for release builds
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          if [ -z "${{ vars.OPEN_PAGES_GITHUB_CLIENT_ID }}" ]; then
+            echo "::error::Release builds need repository variable OPEN_PAGES_GITHUB_CLIENT_ID (Settings → Secrets and variables → Actions → Variables)."
+            exit 1
+          fi
+
+      - name: Build desktop bundle
+        uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPEN_PAGES_GITHUB_CLIENT_ID: ${{ vars.OPEN_PAGES_GITHUB_CLIENT_ID }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm exec tauri
+          args: ${{ matrix.args }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: Open Pages ${{ github.ref_name }}
+          generateReleaseNotes: true
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-pages-desktop-${{ matrix.label }}-${{ github.run_number }}
+          path: |
+            apps/desktop/src-tauri/target/**/release/bundle/**/*
+          if-no-files-found: error
+          retention-days: 14
+
+  required:
+    name: Required / desktop builds passed
+    if: always()
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject failed, cancelled, or skipped desktop builds
+        if: needs.build.result != 'success'
+        run: exit 1
+      - run: echo "All desktop platform builds passed."

@@ -1,4 +1,4 @@
-import type { AddonKind, AddonManifest, SiteConfig, SiteFile } from "@open-pages/shared";
+import type { AddonKind, AddonManifest, PublishRepoCheck, SiteConfig, SiteFile } from "@open-pages/shared";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -120,6 +120,10 @@ export const api = {
       body: JSON.stringify({ files, config }),
     }),
   repos: () => request<{ repos: GithubRepo[] }>("/sites/github/repos"),
+  publishCheck: (owner: string, repo: string, siteId: string) =>
+    request<PublishRepoCheck>(
+      `/sites/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/publish-check?siteId=${encodeURIComponent(siteId)}`,
+    ),
   createRepo: (name: string) =>
     request<{ owner: string; repo: string; pagesUrl: string; root: string }>("/sites/github/repos", {
       method: "POST",

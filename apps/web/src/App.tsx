@@ -10,6 +10,8 @@ import {
   parseFrontMatter,
   parseSiteConfig,
   parseThemeSettings,
+  pagesRoot,
+  pagesUrl,
   pluginConfigPath,
   serializeFrontMatter,
   serializeThemeSettings,
@@ -27,7 +29,7 @@ import {
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import type { SettingsDraft } from "./components/SettingsPage";
 import { DocMetaPanel } from "./components/DocMetaPanel";
-import { MarkdownEditor, SourceEditor } from "./components/Editor";
+import { MarkdownEditor, SourceEditor, type SourceEditorHandle } from "./components/Editor";
 import { FilesPage, type FileEntry } from "./components/FilesPage";
 import { Outline } from "./components/Outline";
 import { FrontMatterBar } from "./components/FrontMatterBar";
@@ -36,8 +38,9 @@ import { PublishPage } from "./components/PublishPage";
 import { SettingsPage, type SettingsTab } from "./components/SettingsPage";
 import { Toast, type ToastState } from "./components/Toast";
 import { TopBar, type EditorMode } from "./components/TopBar";
-import { api, type AuthUser } from "./lib/api";
-import { collectSourceHeadings, type OutlineHeading } from "./lib/outline";
+import type { AuthUser } from "./lib/api";
+import { isTauri, platform } from "./lib/platform";
+import { type OutlineHeading } from "./lib/outline";
 import {
   deleteFile,
   listFiles,
@@ -47,6 +50,7 @@ import {
   siteId,
   snapshotFiles,
   storeLocalImage,
+  storeSiteAvatar,
   resolveLocalImageUrl,
   uniqueUserPath,
   writeFile,
@@ -93,6 +97,7 @@ export function App() {
   const routeRef = useRef(route);
   const writeChainRef = useRef(Promise.resolve());
   const editingPathRef = useRef<string | null>(null);
+  const sourceEditorRef = useRef<SourceEditorHandle>(null);
   routeRef.current = route;
 
   const enqueueWrite = useCallback((task: () => Promise<void>) => {
@@ -181,11 +186,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void api
-      .me()
-      .then(setUser)
-      .catch(() => setUser(null));
-    void api
+    void platform.me().then(setUser);
+    void platform
       .addons()
       .then(({ addons }) => {
         if (Array.isArray(addons)) setAddons(addons);
@@ -215,6 +217,13 @@ export function App() {
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
+
+  useEffect(() => {
+    if (route === "publish-github") {
+      setPublishStatus("");
+      setPublishUrl(null);
+    }
+  }, [route]);
 
   const go = (next: AppRoute) => {
     if (isSettingsRoute(routeRef.current) && !isSettingsRoute(next) && settingsDirtyRef.current) {
@@ -328,7 +337,7 @@ export function App() {
   const renderSettingsPreview = useCallback(
     async (nextConfig: SiteConfig, draft?: SettingsDraft) => {
       const request = ++themePreviewRequestRef.current;
-      if (!online) {
+      if (!online && !isTauri()) {
         if (request === themePreviewRequestRef.current) {
           setThemePreviewError("预览需要联网，由服务端运行 hexo generate。");
         }
@@ -339,7 +348,7 @@ export function App() {
       try {
         await persistCurrent();
         const filesSnapshot = overlayDraftFiles(await snapshotFiles(), draft, fieldsForTheme);
-        const result = await api.preview(siteId(), filesSnapshot, nextConfig);
+        const result = await platform.preview(siteId(), filesSnapshot, nextConfig);
         if (request === themePreviewRequestRef.current) {
           setThemePreviewUrl(`${result.url}?t=${Date.now()}`);
         }
@@ -461,7 +470,7 @@ export function App() {
 
   const runPreview = async () => {
     if (!config) return;
-    if (!online) {
+    if (!online && !isTauri()) {
       setToast({ kind: "error", text: "预览需要联网，由服务端运行 hexo generate。" });
       return;
     }
@@ -476,7 +485,7 @@ export function App() {
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
-      const result = await api.preview(siteId(), filesSnapshot, config);
+      const result = await platform.preview(siteId(), filesSnapshot, config);
       const url = `${result.url}?t=${Date.now()}`;
       if (tab && !tab.closed) {
         tab.location.replace(url);
@@ -496,24 +505,73 @@ export function App() {
     }
   };
 
+  const runPublishPreview = async (opts: { repo: string; owner?: string }) => {
+    if (!config || !user?.login || !opts.repo) return;
+    if (!online && !isTauri()) {
+      setToast({ kind: "error", text: "预览需要联网，由服务端运行 hexo generate。" });
+      return;
+    }
+    const owner = opts.owner ?? user.login;
+    const publishConfig = parseSiteConfig({
+      ...config,
+      url: pagesUrl(owner, opts.repo).replace(/\/$/, ""),
+      root: pagesRoot(owner, opts.repo),
+    });
+    const tab = window.open("about:blank", "open-pages-publish-preview");
+    if (tab) {
+      tab.document.title = "发布预览";
+      tab.document.body.innerHTML =
+        '<p style="font:16px/1.6 system-ui;padding:24px;color:#6f685c">正在按 GitHub Pages 路径生成预览…</p>';
+    }
+    setPreviewing(true);
+    setToast({ kind: "info", text: "正在生成发布预览，将在新标签打开…" });
+    try {
+      await persistCurrent();
+      const filesSnapshot = await snapshotFiles();
+      const result = await platform.preview(siteId(), filesSnapshot, publishConfig);
+      const url = `${result.url}?t=${Date.now()}`;
+      if (tab && !tab.closed) {
+        tab.location.replace(url);
+      } else {
+        window.open(url, "open-pages-publish-preview");
+      }
+      setToast({
+        kind: "ok",
+        text: `已打开发布预览（${result.elapsedMs}ms），路径与 GitHub Pages 一致`,
+        href: url,
+      });
+    } catch (error) {
+      if (tab && !tab.closed) tab.close();
+      setToast({ kind: "error", text: error instanceof Error ? error.message : "预览失败" });
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const login = () => {
-    window.location.href = "/auth/github";
+    void platform
+      .login()
+      .then((next) => {
+        if (next) setUser(next);
+      })
+      .catch((error: unknown) => {
+        setToast({ kind: "error", text: error instanceof Error ? error.message : "登录失败" });
+      });
   };
 
   const logout = async () => {
-    await api.logout();
-    setUser(await api.me());
+    setUser(await platform.logout());
   };
 
   const publish = async (opts: { owner?: string; repo: string; createRepo?: boolean }) => {
     if (!config) return;
     setPublishBusy(true);
-    setPublishStatus("同步文件并运行 hexo generate…");
+    setPublishStatus("正在发布中…");
     setPublishUrl(null);
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
-      const result = await api.publish(siteId(), {
+      const result = await platform.publish(siteId(), {
         files: filesSnapshot,
         config,
         ...opts,
@@ -526,7 +584,7 @@ export function App() {
       };
       setGithub(binding);
       await saveConfig(config, binding);
-      setPublishStatus("已提交 main + gh-pages，并尝试启用 GitHub Pages。");
+      setPublishStatus("");
       setPublishUrl(result.url);
     } catch (error) {
       setPublishStatus(error instanceof Error ? error.message : "发布失败");
@@ -541,18 +599,12 @@ export function App() {
   );
 
   const jumpToHeading = (heading: OutlineHeading) => {
-    const pane = document.querySelector<HTMLElement>('[data-testid="editor-pane"]');
-    if (!pane) return;
-    const textarea = pane.querySelector<HTMLTextAreaElement>('[data-testid="source-editor"]');
-    if (textarea) {
-      const target = collectSourceHeadings(textarea.value)[heading.index];
-      if (!target) return;
-      const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 22;
-      textarea.focus();
-      textarea.setSelectionRange(target.offset, target.offset);
-      textarea.scrollTop = Math.max(0, target.line * lineHeight - 24);
+    if (mode === "source") {
+      sourceEditorRef.current?.jumpToHeading(heading);
       return;
     }
+    const pane = document.querySelector<HTMLElement>('[data-testid="editor-pane"]');
+    if (!pane) return;
     const nodes = pane.querySelectorAll<HTMLElement>(
       ".crepe-host h1, .crepe-host h2, .crepe-host h3, .crepe-host h4, .crepe-host h5, .crepe-host h6",
     );
@@ -606,7 +658,7 @@ export function App() {
           onLogout={() => void logout()}
         />
         <div className="editor-pane" data-testid="editor-pane">
-          {editable && (
+          {editable && mode !== "source" && (
             <FrontMatterBar
               matter={matter}
               onChange={onMatterChange}
@@ -614,7 +666,7 @@ export function App() {
             />
           )}
           {mode === "source" ? (
-            <SourceEditor value={source} onChange={onSourceChange} />
+            <SourceEditor ref={sourceEditorRef} value={source} onChange={onSourceChange} />
           ) : (
             editable && activePath && (
               <MarkdownEditor
@@ -659,14 +711,14 @@ export function App() {
           }}
           onSave={saveSettings}
           onInstallAddon={async (source, kind, onProgress) => {
-            const { addon } = await api.installAddon(source, kind, onProgress);
-            const refreshed = await api.addons();
+            const { addon } = await platform.installAddon(source, kind, onProgress);
+            const refreshed = await platform.addons();
             setAddons(refreshed.addons);
             setToast({ kind: "ok", text: `已安装 ${addon.label}` });
             if (kind === "plugin") void renderSettingsPreview(config);
           }}
           onToggleAddon={async (id, enabled) => {
-            await api.setAddonEnabled(id, enabled);
+            await platform.setAddonEnabled(id, enabled);
             setAddons((current) =>
               current.map((addon) => (addon.id === id ? { ...addon, enabled } : addon)),
             );
@@ -674,7 +726,7 @@ export function App() {
           }}
           onRemoveAddon={async (id) => {
             const removed = addons.find((addon) => addon.id === id);
-            await api.removeAddon(id);
+            await platform.removeAddon(id);
             setAddons((current) => current.filter((addon) => addon.id !== id));
             if (removed?.kind === "plugin") void renderSettingsPreview(config);
           }}
@@ -697,6 +749,8 @@ export function App() {
             setToast({ kind: "ok", text: `已保存 ${addon.label} 配置` });
             void renderSettingsPreview(config);
           }}
+          onUploadAvatar={storeSiteAvatar}
+          resolveAvatarUrl={resolveLocalImageUrl}
           onRetry={() => {
             const draft = settingsDraftRef.current;
             void renderSettingsPreview(draft?.config ?? config, draft ?? undefined);
@@ -726,14 +780,18 @@ export function App() {
       {route === "publish-github" && (
         <PublishPage
           user={user}
+          siteId={siteId()}
           theme={config.theme}
           defaultRepo={github?.repo}
           busy={publishBusy}
+          previewing={previewing}
+          online={online}
           status={publishStatus}
           resultUrl={publishUrl}
           onBack={() => go("editor")}
           onClose={() => go("editor")}
           onLogin={login}
+          onPreview={(opts) => void runPublishPreview(opts)}
           onPublish={(opts) => void publish(opts)}
         />
       )}

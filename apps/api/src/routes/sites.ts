@@ -6,6 +6,8 @@ import {
   DEFAULT_SITE_CONFIG,
   isSafeSiteId,
   isUserEditablePath,
+  openPagesManifestFile,
+  openPagesReadmeFile,
   pagesRoot,
   pagesUrl,
   parseRepoName,
@@ -24,7 +26,7 @@ import {
   resetSite,
   syncSite,
 } from "../lib/workspace.js";
-import { commitFiles, createRepo, enablePages, listRepos } from "../lib/github.js";
+import { assessRepoForPublish, commitFiles, createRepo, enablePages, listRepos } from "../lib/github.js";
 import { createConcurrencyGate, createRateLimiter, requestIp } from "../lib/rate-limit.js";
 
 export const siteRoutes = new Hono<{ Variables: { session: SessionData } }>();
@@ -82,6 +84,19 @@ siteRoutes.post("/github/repos", async (c) => {
   return c.json(repo);
 });
 
+siteRoutes.get("/github/repos/:owner/:repo/publish-check", async (c) => {
+  const session = c.get("session");
+  if (!session.accessToken || !session.login) return c.json({ error: "Not signed in" }, 401);
+  const owner = c.req.param("owner");
+  const repo = parseRepoName(c.req.param("repo"));
+  if (owner !== session.login) throw new ClientError("Cannot inspect another owner's repository", 403);
+  const siteId = c.req.query("siteId") ?? "default";
+  if (!isSafeSiteId(siteId)) throw new ClientError("Invalid site id");
+  const branch = c.req.query("branch") ?? "main";
+  const check = await assessRepoForPublish(session.accessToken, owner, repo, siteId, branch);
+  return c.json(check);
+});
+
 siteRoutes.post("/:siteId/ensure", async (c) => {
   const session = c.get("session");
   const body = (await c.req.json().catch(() => ({}))) as { config?: unknown };
@@ -135,9 +150,13 @@ siteRoutes.post("/:siteId/publish", async (c) => {
   }
   const owner = session.login;
   const repo = parseRepoName(body.repo);
+  const siteId = siteIdParam(c);
 
   if (body.createRepo) {
     await createRepo(session.accessToken, repo, false);
+  } else {
+    const check = await assessRepoForPublish(session.accessToken, owner, repo, siteId);
+    if (!check.eligible) throw new ClientError(check.message, 403);
   }
 
   const config = body.config
@@ -160,6 +179,18 @@ siteRoutes.post("/:siteId/publish", async (c) => {
   } catch {
     // keep empty if missing
   }
+  sourceFiles.push(openPagesManifestFile(siteId));
+  const siteConfig = config ?? DEFAULT_SITE_CONFIG;
+  sourceFiles.push(
+    openPagesReadmeFile({
+      title: siteConfig.title,
+      description: siteConfig.description,
+      pagesUrl: pagesUrl(owner, repo),
+      theme: siteConfig.theme,
+      owner,
+      repo,
+    }),
+  );
 
   await commitFiles({
     token: session.accessToken,

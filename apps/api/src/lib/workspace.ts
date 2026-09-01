@@ -166,7 +166,7 @@ export function generatePublishedSite(
     const safeConfig = config ? parseSiteConfig(config) : DEFAULT_SITE_CONFIG;
     const addons = await resolveGenerationAddons(owner, safeConfig.theme);
     const dir = await syncSiteUnlocked(owner, siteId, files, safeConfig, addons.themeSource);
-    const result = await generateSite(dir, addons);
+    const result = await generateSite(dir, { ...addons, rebaseRoot: safeConfig.root });
     return { dir, result };
   });
 }

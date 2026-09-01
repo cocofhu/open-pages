@@ -13,10 +13,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/site-manifest.test.ts"
   },
   "dependencies": {},
   "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
 }

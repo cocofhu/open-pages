@@ -82,6 +82,8 @@ interface SettingsPageProps {
     values: ThemeSettings,
     yaml: string,
   ) => Promise<void>;
+  onUploadAvatar: (file: File) => Promise<string>;
+  resolveAvatarUrl: (url: string) => Promise<string> | string;
   onRetry: () => void;
   onClose: () => void;
 }
@@ -109,6 +111,8 @@ export function SettingsPage({
   onRemoveAddon,
   onLoadPluginConfig,
   onSavePluginConfig,
+  onUploadAvatar,
+  resolveAvatarUrl,
   onRetry,
   onClose,
 }: SettingsPageProps) {
@@ -373,12 +377,11 @@ export function SettingsPage({
                 <Field testId="cfg-title" label="标题" value={draftConfig.title} onChange={(value) => setSite("title", value)} />
                 <Field testId="cfg-subtitle" label="副标题" value={draftConfig.subtitle} onChange={(value) => setSite("subtitle", value)} />
                 <Field testId="cfg-author" label="作者" value={draftConfig.author} hint="显示在文章页和页脚" onChange={(value) => setSite("author", value)} />
-                <Field
-                  testId="cfg-avatar"
-                  label="头像 URL"
+                <AvatarField
                   value={draftConfig.avatar}
-                  hint="支持 https:// 地址或站内 /images/ 路径"
                   onChange={(value) => setSite("avatar", value)}
+                  onUpload={onUploadAvatar}
+                  resolveUrl={resolveAvatarUrl}
                 />
                 <ComboSelect
                   label="语言"
@@ -397,8 +400,6 @@ export function SettingsPage({
                   onChange={(value) => setSite("timezone", value)}
                 />
                 <PermalinkField value={draftConfig.permalink} onChange={(value) => setSite("permalink", value)} />
-                <Field testId="cfg-url" label="站点 URL" value={draftConfig.url} hint="本地预览用 localhost，发布后按仓库生成" onChange={(value) => setSite("url", value)} />
-                <Field testId="cfg-root" label="站点根路径" value={draftConfig.root} hint="一般是 / ，子路径站点写成 /blog/" onChange={(value) => setSite("root", value)} />
               </div>
               <label className="block">
                 描述
@@ -846,6 +847,111 @@ function Field({
       {hint ? <em className="hint">{hint}</em> : null}
       <input data-testid={testId} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
+  );
+}
+
+function AvatarField({
+  value,
+  onChange,
+  onUpload,
+  resolveUrl,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onUpload: (file: File) => Promise<string>;
+  resolveUrl: (url: string) => Promise<string> | string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    if (!value.trim()) {
+      setPreview(null);
+      return;
+    }
+    void Promise.resolve(resolveUrl(value)).then((url) => {
+      if (!cancelled) setPreview(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveUrl, value]);
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("请选择图片文件");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError("图片请小于 2MB");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const path = await onUpload(file);
+      onChange(path);
+      setPreview(URL.createObjectURL(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "上传失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="avatar-field" data-testid="cfg-avatar-field">
+      <span>头像</span>
+      <em className="hint">上传后自动保存到站点图片目录</em>
+      <div className="avatar-field-row">
+        <div className="avatar-field-preview" aria-hidden="true">
+          {preview ? <img src={preview} alt="" /> : <span>未设置</span>}
+        </div>
+        <div className="avatar-field-actions">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+            hidden
+            data-testid="cfg-avatar-file"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              void pick(file);
+            }}
+          />
+          <button
+            type="button"
+            className="ghost icon-label"
+            data-testid="cfg-avatar-upload"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+          >
+            {busy ? "上传中…" : "上传图片"}
+          </button>
+          {value ? (
+            <button
+              type="button"
+              className="ghost"
+              data-testid="cfg-avatar-clear"
+              disabled={busy}
+              onClick={() => {
+                onChange("");
+                setPreview(null);
+              }}
+            >
+              清除
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {error ? <p className="hint error-text">{error}</p> : null}
+    </div>
   );
 }
 

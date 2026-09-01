@@ -7,6 +7,7 @@ import {
 } from "../session.js";
 import { authorizeUrl, exchangeCode, octokit } from "../lib/github.js";
 
+/** Legacy web OAuth. Desktop uses PKCE + Keychain via apps/desktop. */
 export const authRoutes = new Hono<{ Variables: { session: SessionData } }>();
 
 authRoutes.get("/me", (c) => {

@@ -1,0 +1,24 @@
+{
+  "name": "@open-pages/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "runtime": "tsx runtime/host.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@open-pages/github": "workspace:*",
+    "@open-pages/hexo-runner": "workspace:*",
+    "@open-pages/publish": "workspace:*",
+    "@open-pages/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

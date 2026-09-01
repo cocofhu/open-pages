@@ -129,8 +129,9 @@ test.describe("Open Pages editor", () => {
     await page.getByTestId("btn-source").click();
     const source = page.getByTestId("source-editor");
     await expect(source).toBeVisible();
-    await expect(source).toHaveValue(/title:\s*Hello Open Pages/);
-    await expect(source).toHaveValue(/---/);
+    await expect(source.locator(".cm-content")).toContainText("Hello Open Pages");
+    await expect(source.locator(".cm-content")).toContainText("---");
+    await expect(page.getByTestId("source-preview")).toBeVisible();
     await expect(page.getByTestId("wysiwyg-editor")).toHaveCount(0);
   });
 

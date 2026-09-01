@@ -7,6 +7,7 @@ import {
   RocketLaunchIcon,
 } from "@heroicons/react/24/outline";
 import type { AuthUser } from "../lib/api";
+import { isTauri } from "../lib/platform";
 import { GitHubMark } from "./GitHubMark";
 
 export type EditorMode = "wysiwyg" | "source";
@@ -83,8 +84,8 @@ export function TopBar({
           type="button"
           className="ghost icon-label"
           data-testid="btn-preview"
-          disabled={previewing || !online}
-          title={online ? "用 Hexo 渲染并在新标签打开" : "预览需要联网"}
+          disabled={previewing || (!online && !isTauri())}
+          title={online || isTauri() ? "用 Hexo 渲染并在新标签打开" : "预览需要联网"}
           onClick={onPreview}
         >
           <EyeIcon className="ui-icon" aria-hidden="true" />

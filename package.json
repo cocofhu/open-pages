@@ -8,7 +8,11 @@
   "license": "MIT",
   "scripts": {
     "dev": "pnpm --parallel --filter @open-pages/api --filter @open-pages/web dev",
-    "build": "pnpm --filter @open-pages/shared build && pnpm --filter @open-pages/hexo-runner build && pnpm --filter @open-pages/api build && pnpm --filter @open-pages/web build",
+    "dev:desktop": "pnpm --filter @open-pages/desktop dev",
+    "build": "pnpm --filter @open-pages/shared build && pnpm --filter @open-pages/github build && pnpm --filter @open-pages/github-auth build && pnpm --filter @open-pages/hexo-runner build && pnpm --filter @open-pages/publish build && pnpm --filter @open-pages/api build && pnpm --filter @open-pages/web build",
+    "build:desktop": "pnpm build && pnpm --filter @open-pages/desktop build",
+    "test:github-auth": "pnpm --filter @open-pages/github-auth test",
+    "test:manifest": "pnpm --filter @open-pages/shared test",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test:themes": "pnpm --filter @open-pages/api exec tsx ../../verify-themes.ts",
     "test:theme-settings": "pnpm --filter @open-pages/api exec tsx ../../verify-theme-settings.ts",

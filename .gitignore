@@ -13,3 +13,5 @@ apps/api/workspaces
 test-results
 playwright-report
 blob-report
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen

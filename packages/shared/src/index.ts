@@ -12,6 +12,26 @@ export {
   type ThemeSettingValue,
   type ThemeSettings,
 } from "./theme-settings.js";
+export {
+  OPEN_PAGES_MANIFEST_PATH,
+  OPEN_PAGES_MANIFEST_SCHEMA,
+  OPEN_PAGES_README_PATH,
+  OPEN_PAGES_REPO_DESCRIPTION,
+  OPEN_PAGES_SOURCE_URL,
+  assessRepoRootForPublish,
+  buildOpenPagesReadme,
+  createOpenPagesSiteManifest,
+  manifestMatchesSite,
+  openPagesManifestFile,
+  openPagesReadmeFile,
+  parseOpenPagesSiteManifest,
+  publishRepoCheckMessage,
+  repoRootLooksForeign,
+  serializeOpenPagesSiteManifest,
+  type OpenPagesSiteManifest,
+  type PublishRepoCheck,
+  type PublishRepoReason,
+} from "./site-manifest.js";
 import {
   isThemeConfigPath,
   themeSettingFields,

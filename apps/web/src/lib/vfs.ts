@@ -146,16 +146,57 @@ export async function storeLocalImage(file: File): Promise<string> {
   return publicPath;
 }
 
+/** Keep a stable site avatar path so settings don't accumulate timestamped copies. */
+export async function storeSiteAvatar(file: File): Promise<string> {
+  const ext = avatarExtension(file);
+  const filename = `avatar.${ext}`;
+  const path = `source/images/${filename}`;
+  const publicPath = `/images/${filename}`;
+
+  const database = await db();
+  const existing = (await database.getAll("files")) as FileRow[];
+  for (const row of existing) {
+    if (/^source\/images\/avatar\./i.test(row.path) && row.path !== path) {
+      await database.delete("files", row.path);
+      const oldPublic = `/images/${row.path.slice("source/images/".length)}`;
+      const cached = imageUrlCache.get(oldPublic);
+      if (cached) {
+        URL.revokeObjectURL(cached);
+        imageUrlCache.delete(oldPublic);
+      }
+    }
+  }
+
+  await writeFile(path, await blobToBase64(file), "base64");
+  const previous = imageUrlCache.get(publicPath);
+  if (previous) URL.revokeObjectURL(previous);
+  imageUrlCache.set(publicPath, URL.createObjectURL(file));
+  return publicPath;
+}
+
+function avatarExtension(file: File): string {
+  const fromType = file.type.match(/^image\/(png|jpe?g|gif|webp|svg\+xml)$/i)?.[1];
+  if (fromType) {
+    if (fromType === "jpeg") return "jpg";
+    if (fromType === "svg+xml") return "svg";
+    return fromType.toLowerCase();
+  }
+  const fromName = (file.name || "").match(/\.(png|jpe?g|gif|webp|svg)$/i)?.[1];
+  if (fromName) return fromName.toLowerCase() === "jpeg" ? "jpg" : fromName.toLowerCase();
+  return "png";
+}
+
 export async function resolveLocalImageUrl(url: string): Promise<string> {
-  if (!url.startsWith("/images/")) return url;
-  const cached = imageUrlCache.get(url);
+  const clean = url.split(/[?#]/)[0] ?? url;
+  if (!clean.startsWith("/images/")) return url;
+  const cached = imageUrlCache.get(clean);
   if (cached) return cached;
-  const file = await readFile(`source/images/${url.slice("/images/".length)}`);
+  const file = await readFile(`source/images/${clean.slice("/images/".length)}`);
   if (!file) return url;
-  const previous = imageUrlCache.get(url);
+  const previous = imageUrlCache.get(clean);
   if (previous) URL.revokeObjectURL(previous);
   const objectUrl = URL.createObjectURL(base64ToBlob(file.content, mimeFromPath(file.path)));
-  imageUrlCache.set(url, objectUrl);
+  imageUrlCache.set(clean, objectUrl);
   return objectUrl;
 }
 

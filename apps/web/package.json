@@ -10,15 +10,24 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/state": "^6.7.2",
+    "@codemirror/view": "^6.43.10",
     "@heroicons/react": "^2.2.0",
     "@milkdown/crepe": "^7.22.1",
     "@open-pages/shared": "workspace:*",
+    "@tauri-apps/api": "^2.8.0",
     "idb": "^8.0.3",
+    "markdown-it": "^14.3.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "workbox-window": "^7.4.1"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
