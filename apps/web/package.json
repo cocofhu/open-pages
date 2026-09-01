@@ -15,7 +15,8 @@
     "@open-pages/shared": "workspace:*",
     "idb": "^8.0.3",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "workbox-window": "^7.4.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.12",

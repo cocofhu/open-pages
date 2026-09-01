@@ -13,9 +13,40 @@ async function openHexoPreview(page: Page) {
   await page.getByTestId("btn-preview").click();
   const popup = await popupPromise;
   collectFailedAssets(popup, failed);
-  await popup.waitForURL(/\/preview\/default\/(\?|$)/, { timeout: 40_000 });
+  await popup.waitForURL(/\/preview\/[^/]+\/(\?|$)/, { timeout: 40_000 });
   await popup.waitForLoadState("networkidle");
   return { popup, failed };
+}
+
+/**
+ * The theme stylesheet is served from the preview origin, so it only loads when
+ * the frame resolves its capability URL. Reading cssRules also proves the frame
+ * got a real origin of its own rather than an opaque one, which is what lets
+ * theme scripts use storage.
+ */
+async function expectStyledPreviewFrame(page: Page) {
+  await expect
+    .poll(
+      async () => {
+        const frame = page.frames().find((candidate) => candidate.url().includes("/preview/"));
+        if (!frame) return 0;
+        return await frame
+          .evaluate(() =>
+            [...document.styleSheets]
+              .filter((sheet) => sheet.href?.includes("/preview/"))
+              .reduce((max, sheet) => {
+                try {
+                  return Math.max(max, sheet.cssRules.length);
+                } catch {
+                  return max;
+                }
+              }, 0),
+          )
+          .catch(() => 0);
+      },
+      { timeout: 30_000, message: "theme CSS never loaded inside the preview iframe" },
+    )
+    .toBeGreaterThan(0);
 }
 
 test.describe("Open Pages editor", () => {
@@ -24,11 +55,39 @@ test.describe("Open Pages editor", () => {
     await expect(page.getByTestId("sidebar")).toBeVisible();
     await expect(page.locator(".brand strong")).toHaveText("Open Pages");
     await expect(page.getByTestId("sidebar-site-title")).toHaveText("本地站点");
-    await expect(page.getByTestId("file-hello-open-pages")).toHaveText("Hello Open Pages");
-    await expect(page.getByTestId("file-about")).toHaveText("About");
-    await expect(page.getByTestId("tree-image")).toHaveCount(0);
     await expect(page.getByTestId("wysiwyg-editor")).toBeVisible();
     await expect(page.getByTestId("editor-pane")).toContainText(/Typora|Hexo|GitHub Pages/);
+  });
+
+  test("sidebar lists the document outline instead of files", async ({ page }) => {
+    await boot(page);
+    await expect(page.getByTestId("outline")).toBeVisible();
+    await expect(page.getByTestId("file-hello-open-pages")).toHaveCount(0);
+    const first = page.getByTestId("outline-item-0");
+    await expect(first).toBeVisible();
+    const heading = await first.textContent();
+    await first.click();
+    await expect(page.locator(".crepe-host").getByText(heading!.trim(), { exact: true }).first()).toBeVisible();
+  });
+
+  test("manages files on a dedicated page", async ({ page }) => {
+    await boot(page);
+    await page.getByTestId("btn-files").click();
+    await expect(page.getByTestId("files-page")).toBeVisible();
+    await expect(page).toHaveURL(/#\/files/);
+    await expect(page.getByTestId("file-hello-open-pages")).toContainText("Hello Open Pages");
+    await expect(page.getByTestId("file-about")).toContainText("About");
+    await expect(page.getByTestId("files-group-image")).toHaveCount(0);
+
+    await page.getByTestId("files-tab-draft").click();
+    await expect(page.getByTestId("files-blank")).toBeVisible();
+    await page.getByTestId("files-tab-all").click();
+
+    await page.getByTestId("files-search").fill("about");
+    await expect(page.getByTestId("file-hello-open-pages")).toHaveCount(0);
+    await page.getByTestId("file-about").click();
+    await expect(page.getByTestId("files-page")).toHaveCount(0);
+    await expect(page.getByTestId("title-input")).toHaveValue("About");
   });
 
   test("code language picker does not overlap the heading above", async ({ page }) => {
@@ -77,12 +136,14 @@ test.describe("Open Pages editor", () => {
 
   test("creates a post from the in-app dialog", async ({ page }) => {
     await boot(page);
+    await page.getByTestId("btn-files-top").click();
     await page.getByTestId("new-post").click();
     await expect(page.getByTestId("dialog-new-doc")).toBeVisible();
     await page.getByTestId("new-doc-title").fill("E2E Article");
     await page.getByTestId("new-doc-submit").click();
-    await expect(page.getByTestId("file-e2e-article")).toBeVisible();
     await expect(page.getByTestId("title-input")).toHaveValue("E2E Article");
+    await page.getByTestId("btn-files").click();
+    await expect(page.getByTestId("file-e2e-article")).toBeVisible();
   });
 
   test("opens a settings page with live theme preview", async ({ page }) => {
@@ -94,6 +155,11 @@ test.describe("Open Pages editor", () => {
     await expect(page.getByTestId("theme-landscape")).toHaveClass(/on/);
     await expect(page.getByTestId("theme-setting-sidebar")).toBeVisible();
     await expect(page.getByTestId("theme-preview-loading").or(page.getByTestId("theme-preview-frame"))).toBeVisible();
+    await page.getByTestId("settings-tab-plugin").click();
+    await expect(page.getByTestId("plugin-settings")).toBeVisible();
+    await expect(page.getByTestId("plugin-hexo-renderer-marked")).toContainText("核心预装");
+    await expect(page.getByTestId("plugin-toggle-hexo-renderer-marked")).toBeDisabled();
+    await expect(page.getByTestId("addon-source-plugin")).toBeVisible();
 
     await page.getByTestId("settings-tab-site").click();
     await expect(page).toHaveURL(/#\/settings\/site/);
@@ -101,18 +167,48 @@ test.describe("Open Pages editor", () => {
     await expect(title).toBeVisible();
     await expect(title).toHaveValue("Open Pages");
     await title.fill("E2E Site");
+    // Use a tiny data URI so Stellar's img onerror does not replace a broken
+    // remote URL with the theme placeholder before the assertion runs.
+    const avatarDataUri =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    await page.getByTestId("cfg-avatar").fill(avatarDataUri);
     await expect(page.getByTestId("settings-save")).toBeEnabled();
     await page.getByTestId("settings-save").click();
     await expect(page.getByTestId("sidebar-site-title")).toHaveText("E2E Site");
 
     await page.getByTestId("settings-tab-theme").click();
+    await page.getByTestId("theme-stellar").click();
+    await expect
+      .poll(
+        () =>
+          page
+            .frameLocator('[data-testid="theme-preview-frame"]')
+            .locator("a.avatar img.avatar")
+            .first()
+            .getAttribute("src")
+            .catch(() => null),
+        { timeout: 60_000, message: "Stellar did not use the configured avatar" },
+      )
+      .toBe(avatarDataUri);
+
     await page.getByTestId("theme-next").click();
     await expect(page.getByTestId("theme-next")).toHaveClass(/on/);
     await expect(page.getByTestId("theme-settings")).toContainText("NexT");
     await expect(page.getByTestId("theme-setting-color_scheme")).toBeVisible();
+    // Rapid changes start overlapping server generations; only the newest
+    // result may update the preview/error state.
+    await page.getByTestId("theme-setting-color_scheme-light").click();
+    await page.waitForTimeout(700);
+    await page.getByTestId("theme-setting-color_scheme-dark").click();
+    await page.waitForTimeout(700);
+    await page.getByTestId("theme-setting-color_scheme-auto").click();
+    await expect(page.getByTestId("theme-preview-frame")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("theme-preview-error")).toHaveCount(0);
+    await expectStyledPreviewFrame(page);
     await expect(page.getByTestId("settings-save")).toBeEnabled();
     await page.getByTestId("settings-save").click();
     await expect(page.getByTestId("theme-preview-frame")).toBeVisible({ timeout: 60_000 });
+    await expectStyledPreviewFrame(page);
 
     await page.getByTestId("settings-close").click();
     await expect(page.getByTestId("settings-page")).toHaveCount(0);

@@ -2,6 +2,7 @@ import {
   Bars3CenterLeftIcon,
   CodeBracketIcon,
   EyeIcon,
+  FolderIcon,
   PencilSquareIcon,
   RocketLaunchIcon,
 } from "@heroicons/react/24/outline";
@@ -19,6 +20,7 @@ interface TopBarProps {
   onMode: (mode: EditorMode) => void;
   onPreview: () => void;
   onToggleSidebar: () => void;
+  onFiles: () => void;
   onPublish: () => void;
   onLogin: () => void;
   onLogout: () => void;
@@ -33,6 +35,7 @@ export function TopBar({
   onMode,
   onPreview,
   onToggleSidebar,
+  onFiles,
   onPublish,
   onLogin,
   onLogout,
@@ -43,9 +46,13 @@ export function TopBar({
         {!sidebarOpen && (
           <button type="button" className="ghost icon-label" data-testid="btn-sidebar" onClick={onToggleSidebar}>
             <Bars3CenterLeftIcon className="ui-icon" aria-hidden="true" />
-            目录
+            大纲
           </button>
         )}
+        <button type="button" className="ghost icon-label" data-testid="btn-files-top" onClick={onFiles}>
+          <FolderIcon className="ui-icon" aria-hidden="true" />
+          文件
+        </button>
         <div className="seg" role="tablist" aria-label="编辑模式">
           <button
             type="button"

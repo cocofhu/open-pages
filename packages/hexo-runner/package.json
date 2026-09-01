@@ -10,11 +10,13 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node --eval \"require('node:fs').copyFileSync('src/generate-worker.mjs', 'dist/generate-worker.mjs')\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@open-pages/shared": "workspace:*",
+    "chalk": "4.1.2",
+    "css": "^3.0.0",
     "hexo": "^7.3.0",
     "hexo-fs": "^4.1.3",
     "hexo-generator-archive": "^2.0.0",
@@ -44,9 +46,19 @@
     "hexo-theme-stellar": "^1.44.0",
     "hexo-theme-stun": "^2.8.0",
     "hexo-theme-tranquility": "^1.7.1",
-    "hexo-theme-white": "^1.0.8",
+    "hexo-theme-white": "github:FuShaoLei/hexo-theme-white#c86eed90ab84a0de9dc1ff91525db74e8ff79145",
     "hexo-util": "^3.3.0",
-    "nunjucks": "^3.2.4"
+    "hexo-wordcount": "^6.0.1",
+    "highlight.js": "^11.12.0",
+    "html-to-text": "^9.0.5",
+    "js-yaml": "^5.4.1",
+    "markdown-it": "^14.3.1",
+    "markdown-it-container": "^4.0.0",
+    "moize": "^6.1.7",
+    "moment": "^2.30.1",
+    "nunjucks": "^3.2.4",
+    "opentype.js": "^1.3.5",
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",

@@ -6,7 +6,9 @@ export default defineConfig({
   timeout: 90_000,
   retries: 0,
   workers: 1,
-  fullyParallel: false,
+  // CI shards the theme suite by individual test. Each shard still has one
+  // worker, so generations remain serial inside its isolated runner.
+  fullyParallel: true,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: "http://localhost:5173",

@@ -3,13 +3,24 @@ import { expect, type Page } from "@playwright/test";
 const SKIP = /^(#|mailto:|javascript:|data:|blob:)/i;
 const ASSET = /\.(js|css|png|jpe?g|gif|ico|svg|xml|json|woff2?|map)($|\?)/i;
 
-export async function crawlPreview(popup: Page, previewPrefix = "/preview/default") {
-  const origin = new URL(popup.url()).origin;
-  const start = new URL(previewPrefix.endsWith("/") ? previewPrefix : `${previewPrefix}/`, origin).href;
+/**
+ * A preview lives at /preview/<capability key>/ on its own origin, so the crawl
+ * scope is read off the popup rather than hard-coded.
+ */
+function previewScope(popup: Page): { origin: string; prefix: string } {
+  const url = new URL(popup.url());
+  const [, mount, key] = url.pathname.split("/");
+  return { origin: url.origin, prefix: `/${mount}/${key}` };
+}
+
+export async function crawlPreview(popup: Page, scope = previewScope(popup)) {
+  const { origin, prefix: previewPrefix } = scope;
+  const start = new URL(`${previewPrefix}/`, origin).href;
   const queue = [start];
   const seen = new Set<string>();
   const missing: string[] = [];
   const pages: string[] = [];
+  const mistyped: string[] = [];
 
   while (queue.length && seen.size < 120) {
     const current = normalize(queue.shift()!);
@@ -25,7 +36,20 @@ export async function crawlPreview(popup: Page, previewPrefix = "/preview/defaul
       missing.push(`${status} ${current}`);
       continue;
     }
-    if (contentType.includes("html") || current.endsWith("/") || current.endsWith(".html")) {
+
+    const looksLikePage = current.endsWith("/") || current.endsWith(".html");
+    // A page served as anything but HTML is a link the browser refuses to
+    // navigate to: it downloads the response instead. Trusting the URL shape
+    // here once hid exactly that bug, so the header is checked on its own.
+    if (looksLikePage && !contentType.includes("html")) {
+      mistyped.push(`${current} -> ${contentType || "(none)"}`);
+    }
+    // Nothing a preview serves should ever arrive as a download, whatever the
+    // URL looks like.
+    if (contentType.includes("octet-stream") || response.headers()["content-disposition"]) {
+      mistyped.push(`${current} -> ${contentType} (browser would download this)`);
+    }
+    if (contentType.includes("html") || looksLikePage) {
       pages.push(current);
       enqueue(queue, seen, extractHtmlUrls(body, current), origin, previewPrefix);
     }
@@ -34,29 +58,28 @@ export async function crawlPreview(popup: Page, previewPrefix = "/preview/defaul
     }
   }
 
-  return { seen: [...seen], pages, missing };
+  return { seen: [...seen], pages, missing, mistyped };
 }
 
-export async function assertNoBrokenPreviewLinks(popup: Page, previewPrefix = "/preview/default") {
-  const required = [
-    `${previewPrefix}/`,
-    `${previewPrefix}/atom.xml`,
-    `${previewPrefix}/archives/`,
-  ];
-  for (const path of required) {
+export async function assertNoBrokenPreviewLinks(popup: Page, scope = previewScope(popup)) {
+  // The preview is on a different origin than the app, so every probe has to be
+  // an absolute URL; a relative one would resolve against the test baseURL.
+  const base = `${scope.origin}${scope.prefix}`;
+  for (const path of [`${base}/`, `${base}/atom.xml`, `${base}/archives/`]) {
     const response = await popup.request.get(path);
     const body = await response.text();
     expect(response.status(), path).toBe(200);
     expect(body, path).not.toMatch(/"error"\s*:\s*"Not found"/);
   }
 
-  const atom = await popup.request.get(`${previewPrefix}/atom.xml`);
+  const atom = await popup.request.get(`${base}/atom.xml`);
   const atomBody = await atom.text();
   expect(atomBody).toMatch(/<feed[\s>]|<rss[\s>]/);
 
-  const { missing, pages } = await crawlPreview(popup, previewPrefix);
+  const { missing, pages, mistyped } = await crawlPreview(popup, scope);
   expect(pages.length, "preview crawl found no HTML pages").toBeGreaterThan(0);
   expect(missing, `broken preview URLs:\n${missing.join("\n")}`).toEqual([]);
+  expect(mistyped, `preview pages not served as HTML:\n${mistyped.join("\n")}`).toEqual([]);
 }
 
 export async function collectFailedAssets(page: Page, failed: string[]) {

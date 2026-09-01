@@ -1,6 +1,7 @@
 import { openDB, type IDBPDatabase } from "idb";
 import {
   DEFAULT_SITE_CONFIG,
+  parseSiteConfig,
   type SiteConfig,
   type SiteFile,
   type GithubBinding,
@@ -46,7 +47,7 @@ export function siteId(): string {
 export async function loadConfig(): Promise<{ config: SiteConfig; github?: GithubBinding }> {
   const database = await db();
   const row = (await database.get("meta", SITE_ID)) as MetaRow | undefined;
-  if (row) return { config: row.config, github: row.github };
+  if (row) return { config: parseSiteConfig(row.config), github: row.github };
   const config = { ...DEFAULT_SITE_CONFIG };
   await database.put("meta", { key: SITE_ID, config, updatedAt: Date.now() });
   return { config };

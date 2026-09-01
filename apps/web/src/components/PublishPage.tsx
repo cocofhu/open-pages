@@ -53,7 +53,7 @@ export function PublishPage({
   return (
     <div className="studio studio-github" data-testid="publish-page">
       <StudioBar
-        title="发布到 GitHub"
+        title="发布到 GitHub Pages"
         actions={
           <>
             <button type="button" className="ghost icon-label" data-testid="publish-back" onClick={onBack}>
@@ -69,7 +69,7 @@ export function PublishPage({
       />
       <div className="publish-form" data-testid="dialog-publish">
         <p className="hint">
-          当前主题 <strong>{THEME_META[theme].label}</strong>
+          当前主题 <strong>{THEME_META[theme]?.label ?? theme}</strong>
           ，可在站点设置里更换。源码提交到 main，Hexo 产物提交到 gh-pages。
         </p>
         {!user?.login ? (

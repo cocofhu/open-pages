@@ -1,15 +1,15 @@
 import { mkdir } from "node:fs/promises";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "./env.js";
 import { asClientError } from "./errors.js";
-import { ownerKey, sessionMiddleware, type SessionData } from "./session.js";
+import { sessionMiddleware, type SessionData } from "./session.js";
 import { authRoutes } from "./routes/auth.js";
+import { addonRoutes } from "./routes/addons.js";
 import { siteRoutes } from "./routes/sites.js";
 import { readPublicFile } from "./lib/workspace.js";
-import { isSafeSiteId } from "@open-pages/shared";
+import { readPreviewKey } from "./lib/preview-token.js";
 
 await mkdir(env.workspaceRoot, { recursive: true });
 
@@ -26,36 +26,8 @@ app.use("*", sessionMiddleware);
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/auth", authRoutes);
+app.route("/addons", addonRoutes);
 app.route("/sites", siteRoutes);
-
-app.get("/preview/:siteId", (c) => {
-  const siteId = c.req.param("siteId");
-  if (!isSafeSiteId(siteId)) return c.notFound();
-  return c.redirect(`/preview/${siteId}/`);
-});
-
-app.get("/preview/:siteId/*", async (c) => {
-  const session = c.get("session");
-  const siteId = c.req.param("siteId");
-  if (!isSafeSiteId(siteId)) return c.notFound();
-  const leftover = c.req.path.slice(`/preview/${siteId}`.length);
-  const rel = leftover.replace(/\/+$/, "") || "index.html";
-  const file = await readPublicFile(ownerKey(session), siteId, rel);
-  if (!file) return c.notFound();
-  const path = leftover.replace(/\/+$/, "") || "/index.html";
-  return new Response(file, {
-    headers: {
-      "content-type": contentType(path),
-      "cache-control": "no-store",
-      "x-content-type-options": "nosniff",
-      "content-security-policy": previewCsp(path),
-      "referrer-policy": "no-referrer",
-      "x-frame-options": "SAMEORIGIN",
-    },
-  });
-});
-
-app.use("/assets/*", serveStatic({ root: "./" }));
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 app.onError((error, c) => {
@@ -65,38 +37,92 @@ app.onError((error, c) => {
   return c.json({ error: "Server error" }, 500);
 });
 
-function previewCsp(path: string): string {
-  if (path.endsWith(".css")) return "default-src 'none'; style-src 'unsafe-inline'";
-  if (/\.(js|mjs)$/i.test(path)) return "default-src 'none'";
-  return (
-    "default-src 'none'; base-uri 'none'; form-action 'self'; " +
-    "script-src 'none'; style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: https: blob:; font-src 'self' data:; " +
-    "connect-src 'none'; frame-src 'none'; object-src 'none'"
-  );
-}
+/**
+ * The preview runs on its own origin that holds no session cookie and exposes
+ * no app API, so theme scripts are free to run: the isolation comes from the
+ * origin boundary rather than from stripping the page apart. `frame-ancestors`
+ * keeps the capability URL embeddable only by the editor itself.
+ */
+const previewApp = new Hono();
 
+previewApp.get("/preview/:key", (c) => c.redirect(`/preview/${c.req.param("key")}/`));
+
+previewApp.get("/preview/:key/*", async (c) => {
+  const key = c.req.param("key");
+  const site = readPreviewKey(key);
+  if (!site) return c.text("Not found", 404);
+  const leftover = c.req.path.slice(`/preview/${key}`.length);
+  const rel = leftover.replace(/\/+$/, "") || "index.html";
+  const file = await readPublicFile(site.owner, site.siteId, rel);
+  // Plain text keeps a missing asset visible as a 404 instead of being swallowed
+  // as an opaque-response block when the browser expected CSS or an image.
+  if (!file) return c.text("Not found", 404);
+  return new Response(file.body, {
+    headers: {
+      // Typed from the resolved file, never from the request path: a page URL
+      // like /2026/09/01/post/ carries no extension, and guessing from it
+      // labelled real pages as a download, which browsers refuse to navigate to.
+      "content-type": contentType(file.path),
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": `frame-ancestors ${env.appOrigin}`,
+      "referrer-policy": "no-referrer",
+    },
+  });
+});
+
+previewApp.notFound((c) => c.text("Not found", 404));
+
+const CONTENT_TYPES: Record<string, string> = {
+  html: "text/html; charset=utf-8",
+  htm: "text/html; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  mjs: "text/javascript; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  map: "application/json; charset=utf-8",
+  webmanifest: "application/manifest+json; charset=utf-8",
+  xml: "application/xml; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+  svg: "image/svg+xml",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  avif: "image/avif",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  eot: "application/vnd.ms-fontobject",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  wasm: "application/wasm",
+  pdf: "application/pdf",
+};
+
+/**
+ * Typed from the file that was actually read, so a page URL like
+ * /2026/09/01/post/ arrives here as `.../index.html` rather than as an
+ * extensionless path that has to be guessed at.
+ *
+ * Unknown extensions fall back to plain text rather than octet-stream: this
+ * server only ever hands back a generated site, and a download prompt in the
+ * middle of a preview is a worse failure than a file rendered as text.
+ */
 function contentType(path: string): string {
-  if (path.endsWith(".css")) return "text/css; charset=utf-8";
-  if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
-  if (path.endsWith(".json")) return "application/json; charset=utf-8";
-  if (path.endsWith(".xml")) return "application/xml; charset=utf-8";
-  if (path.endsWith(".svg")) return "image/svg+xml";
-  if (path.endsWith(".png")) return "image/png";
-  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
-  if (path.endsWith(".webp")) return "image/webp";
-  if (path.endsWith(".gif")) return "image/gif";
-  if (path.endsWith(".ico")) return "image/x-icon";
-  if (path.endsWith(".woff")) return "font/woff";
-  if (path.endsWith(".woff2")) return "font/woff2";
-  if (path.endsWith(".ttf")) return "font/ttf";
-  if (path.endsWith(".otf")) return "font/otf";
-  if (path.endsWith(".eot")) return "application/vnd.ms-fontobject";
-  if (path.endsWith(".map")) return "application/json; charset=utf-8";
-  if (/\.html?$/i.test(path) || path.endsWith("/")) return "text/html; charset=utf-8";
-  return "application/octet-stream";
+  const ext = path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  return (ext && CONTENT_TYPES[ext]) || "text/plain; charset=utf-8";
 }
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {
   console.log(`open-pages api listening on http://localhost:${info.port}`);
+});
+
+serve({ fetch: previewApp.fetch, port: env.previewPort }, (info) => {
+  console.log(`open-pages preview listening on http://localhost:${info.port}`);
 });

@@ -1,7 +1,9 @@
 export {
   defaultThemeSettings,
+  defaultSettingsForFields,
   isThemeConfigPath,
   parseThemeSettings,
+  pluginConfigPath,
   resolvedColorScheme,
   serializeThemeSettings,
   themeConfigPath,
@@ -10,7 +12,11 @@ export {
   type ThemeSettingValue,
   type ThemeSettings,
 } from "./theme-settings.js";
-import { isThemeConfigPath } from "./theme-settings.js";
+import {
+  isThemeConfigPath,
+  themeSettingFields,
+  type ThemeSettingField,
+} from "./theme-settings.js";
 
 export const THEMES = [
   "landscape",
@@ -27,10 +33,11 @@ export const THEMES = [
   "apollo",
   "inside",
 ] as const;
-export type ThemeId = (typeof THEMES)[number];
+export type BuiltinThemeId = (typeof THEMES)[number];
+export type ThemeId = string;
 
 export const THEME_META: Record<
-  ThemeId,
+  string,
   { label: string; packageName: string; description: string }
 > = {
   landscape: {
@@ -100,6 +107,63 @@ export const THEME_META: Record<
   },
 };
 
+export type AddonKind = "theme" | "plugin";
+export type AddonSource =
+  | { type: "builtin"; packageName: string; version: string }
+  | { type: "npm"; packageName: string; version: string }
+  | { type: "github"; packageName: string; repo: string; ref?: string };
+
+export interface AddonManifest {
+  id: string;
+  kind: AddonKind;
+  packageName: string;
+  label: string;
+  description: string;
+  source: AddonSource;
+  settings: ThemeSettingField[];
+  builtin: boolean;
+  core?: boolean;
+  enabled?: boolean;
+  tint?: { ink: string; paper: string };
+}
+
+export const BUILTIN_ADDONS: AddonManifest[] = [
+  ...THEMES.map((id) => ({
+    id,
+    kind: "theme" as const,
+    packageName: THEME_META[id].packageName,
+    label: THEME_META[id].label,
+    description: THEME_META[id].description,
+    source: { type: "builtin" as const, packageName: THEME_META[id].packageName, version: "" },
+    settings: themeSettingFields(id),
+    builtin: true,
+  })),
+  ...[
+    ["hexo-renderer-marked", true, "Markdown 渲染"],
+    ["hexo-renderer-ejs", true, "EJS 模板渲染"],
+    ["hexo-renderer-pug", true, "Pug 模板渲染"],
+    ["hexo-renderer-stylus", true, "Stylus 样式渲染"],
+    ["hexo-generator-index", true, "首页生成"],
+    ["hexo-generator-archive", true, "归档页生成"],
+    ["hexo-generator-category", true, "分类页生成"],
+    ["hexo-generator-tag", true, "标签页生成"],
+    ["hexo-generator-feed", false, "RSS / Atom 订阅"],
+    ["hexo-generator-search", false, "站内搜索索引"],
+    ["hexo-wordcount", false, "文章字数与阅读时间"],
+  ].map(([packageName, core, description]) => ({
+    id: String(packageName),
+    kind: "plugin" as const,
+    packageName: String(packageName),
+    label: String(packageName).replace(/^hexo-/, ""),
+    description: String(description),
+    source: { type: "builtin" as const, packageName: String(packageName), version: "" },
+    settings: [],
+    builtin: true,
+    core: Boolean(core),
+    enabled: true,
+  })),
+];
+
 export interface FrontMatter {
   title: string;
   date: string;
@@ -113,6 +177,7 @@ export interface SiteConfig {
   subtitle: string;
   description: string;
   author: string;
+  avatar: string;
   language: string;
   timezone: string;
   url: string;
@@ -150,6 +215,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   subtitle: "Write, preview, publish",
   description: "A Typora-like editor that publishes with Hexo to GitHub Pages.",
   author: "",
+  avatar: "/images/avatar.svg",
   language: "zh-CN",
   timezone: "Asia/Shanghai",
   url: "http://localhost:8787",
@@ -216,7 +282,7 @@ export function isSafeWorkspaceId(value: string): boolean {
 }
 
 export function isThemeId(value: unknown): value is ThemeId {
-  return typeof value === "string" && (THEMES as readonly string[]).includes(value);
+  return typeof value === "string" && /^[a-z][a-z0-9-]{0,79}$/.test(value);
 }
 
 export function parseRepoName(name: unknown): string {
@@ -253,6 +319,7 @@ export function parseSiteConfig(input: unknown): SiteConfig {
     subtitle: field("subtitle", DEFAULT_SITE_CONFIG.subtitle),
     description: field("description", DEFAULT_SITE_CONFIG.description, 2000),
     author: field("author", DEFAULT_SITE_CONFIG.author),
+    avatar: field("avatar", DEFAULT_SITE_CONFIG.avatar, 2000),
     language: field("language", DEFAULT_SITE_CONFIG.language, 32),
     timezone: field("timezone", DEFAULT_SITE_CONFIG.timezone, 64),
     url: field("url", DEFAULT_SITE_CONFIG.url, 300),
@@ -305,6 +372,7 @@ export function applySiteConfigToYaml(config: SiteConfig, existing = ""): string
     [/^subtitle:.*$/m, `subtitle: ${yamlQuote(config.subtitle)}`],
     [/^description:.*$/m, `description: ${yamlQuote(config.description)}`],
     [/^author:.*$/m, `author: ${yamlQuote(config.author)}`],
+    [/^avatar:.*$/m, `avatar: ${yamlQuote(config.avatar)}`],
     [/^language:.*$/m, `language: ${yamlQuote(config.language)}`],
     [/^timezone:.*$/m, `timezone: ${yamlQuote(config.timezone)}`],
     [/^url:.*$/m, `url: ${yamlQuote(config.url)}`],
@@ -326,6 +394,7 @@ subtitle: ${yamlQuote(config.subtitle)}
 description: ${yamlQuote(config.description)}
 keywords:
 author: ${yamlQuote(config.author)}
+avatar: ${yamlQuote(config.avatar)}
 language: ${yamlQuote(config.language)}
 timezone: ${yamlQuote(config.timezone)}
 url: ${yamlQuote(config.url)}
@@ -449,7 +518,11 @@ export function aboutPageMarkdown(): string {
 
 function yamlQuote(value: string): string {
   if (value === "") return '""';
-  if (/[:#{}[\],&*?|<>=!%@`]/.test(value) || value.includes("\n")) {
+  if (
+    /^(?:~|null|true|false|yes|no|on|off|auto|default|undefined)$/i.test(value) ||
+    /[:#{}[\],&*?|<>=!%@`]/.test(value) ||
+    value.includes("\n")
+  ) {
     return JSON.stringify(value);
   }
   return value;

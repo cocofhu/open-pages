@@ -29,12 +29,19 @@ export function themeConfigPath(theme: ThemeId): string {
   return `_config.${theme}.yml`;
 }
 
-export function isThemeConfigPath(path: string): boolean {
-  const match = path.replaceAll("\\", "/").match(/^_config\.([a-z0-9]+)\.yml$/);
-  return Boolean(match && match[1] in FIELDS);
+export function pluginConfigPath(plugin: string): string {
+  return `_config.plugin.${plugin}.yml`;
 }
 
-const FIELDS: Record<ThemeId, ThemeSettingField[]> = {
+export function isThemeConfigPath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/");
+  return (
+    /^_config\.[a-z][a-z0-9-]{0,79}\.yml$/.test(normalized) ||
+    /^_config\.plugin\.[a-z][a-z0-9-]{0,79}\.yml$/.test(normalized)
+  );
+}
+
+const FIELDS: Record<string, ThemeSettingField[]> = {
   landscape: [
     {
       key: "sidebar",
@@ -469,18 +476,26 @@ const FIELDS: Record<ThemeId, ThemeSettingField[]> = {
 };
 
 export function themeSettingFields(theme: ThemeId): ThemeSettingField[] {
-  return FIELDS[theme];
+  return FIELDS[theme] ?? [];
 }
 
 export function defaultThemeSettings(theme: ThemeId): ThemeSettings {
+  return defaultSettingsForFields(themeSettingFields(theme));
+}
+
+export function defaultSettingsForFields(fields: ThemeSettingField[]): ThemeSettings {
   const values: ThemeSettings = {};
-  for (const field of FIELDS[theme]) values[field.key] = field.default;
+  for (const field of fields) values[field.key] = field.default;
   return values;
 }
 
-export function serializeThemeSettings(theme: ThemeId, values: ThemeSettings): string {
+export function serializeThemeSettings(
+  theme: ThemeId,
+  values: ThemeSettings,
+  fields = themeSettingFields(theme),
+): string {
   const tree: YamlNode = {};
-  for (const field of FIELDS[theme]) {
+  for (const field of fields) {
     const raw = values[field.key] ?? field.default;
     setYamlPath(tree, field.yamlPath, coerceFieldValue(field, raw));
   }
@@ -491,10 +506,14 @@ export function serializeThemeSettings(theme: ThemeId, values: ThemeSettings): s
   return [`# Open Pages · ${theme}`, serializeYaml(tree), ""].join("\n");
 }
 
-export function parseThemeSettings(theme: ThemeId, yaml: string): ThemeSettings {
+export function parseThemeSettings(
+  theme: ThemeId,
+  yaml: string,
+  fields = themeSettingFields(theme),
+): ThemeSettings {
   const tree = parseSimpleYaml(yaml);
-  const values = defaultThemeSettings(theme);
-  for (const field of FIELDS[theme]) {
+  const values = defaultSettingsForFields(fields);
+  for (const field of fields) {
     const found = getYamlPath(tree, field.yamlPath);
     if (found === undefined) continue;
     values[field.key] = coerceFieldValue(field, found);
@@ -589,8 +608,13 @@ function serializeYaml(node: YamlNode, indent = 0): string {
 function yamlScalar(value: YamlScalar): string {
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return String(value);
-  if (value === "true" || value === "false") return value;
-  if (value === "" || /[:#{}[\],&*?|<>=!%@`]/.test(value) || /\s/.test(value) || value.startsWith("#")) {
+  if (
+    value === "" ||
+    /^(?:~|null|true|false|yes|no|on|off|auto|default|undefined)$/i.test(value) ||
+    /[:#{}[\],&*?|<>=!%@`]/.test(value) ||
+    /\s/.test(value) ||
+    value.startsWith("#")
+  ) {
     return JSON.stringify(value);
   }
   return value;
