@@ -1,8 +1,11 @@
+import { TrashIcon, XMarkIcon } from "@heroicons/react/24/outline";
+
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
   message: string;
   confirmLabel?: string;
+  danger?: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -12,6 +15,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel = "删除",
+  danger = true,
   onClose,
   onConfirm,
 }: ConfirmDialogProps) {
@@ -27,10 +31,17 @@ export function ConfirmDialog({
         <h2>{title}</h2>
         <p className="hint">{message}</p>
         <div className="modal-actions">
-          <button type="button" onClick={onClose}>
+          <button type="button" className="icon-label" onClick={onClose}>
+            <XMarkIcon className="ui-icon" aria-hidden="true" />
             取消
           </button>
-          <button type="button" className="danger" data-testid="confirm-ok" onClick={onConfirm}>
+          <button
+            type="button"
+            className={danger ? "danger icon-label" : "primary icon-label"}
+            data-testid="confirm-ok"
+            onClick={onConfirm}
+          >
+            {danger ? <TrashIcon className="ui-icon" aria-hidden="true" /> : <XMarkIcon className="ui-icon" aria-hidden="true" />}
             {confirmLabel}
           </button>
         </div>

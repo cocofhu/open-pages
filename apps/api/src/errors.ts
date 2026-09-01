@@ -1,7 +1,7 @@
 export class ClientError extends Error {
-  readonly status: 400 | 401 | 403;
+  readonly status: 400 | 401 | 403 | 429;
 
-  constructor(message: string, status: 400 | 401 | 403 = 400) {
+  constructor(message: string, status: 400 | 401 | 403 | 429 = 400) {
     super(message);
     this.name = "ClientError";
     this.status = status;
@@ -13,7 +13,7 @@ export function asClientError(error: unknown): ClientError | null {
   if (!(error instanceof Error)) return null;
   if (error.message === "Not signed in") return new ClientError(error.message, 401);
   if (
-    /^(Invalid |Path not allowed|Too many files|File too large|Repository name|Cannot publish|hexo generate timed out)/.test(
+    /^(Invalid |Path not allowed|Too many files|File too large|Repository name|Cannot publish|hexo generate timed out|Too many requests|hexo generate failed)/.test(
       error.message,
     )
   ) {

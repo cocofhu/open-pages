@@ -1,11 +1,17 @@
+import { AdjustmentsHorizontalIcon } from "@heroicons/react/24/outline";
 import type { FrontMatter } from "@open-pages/shared";
 
 interface FrontMatterBarProps {
   matter: FrontMatter;
   onChange: (matter: FrontMatter) => void;
+  onOpenMeta: () => void;
 }
 
-export function FrontMatterBar({ matter, onChange }: FrontMatterBarProps) {
+export function FrontMatterBar({ matter, onChange, onOpenMeta }: FrontMatterBarProps) {
+  const tags = matter.tags.length ? matter.tags.join(" · ") : null;
+  const categories = matter.categories.length ? matter.categories.join(" · ") : null;
+  const summary = [matter.date || null, tags, categories].filter(Boolean).join("  ·  ");
+
   return (
     <div className="front-matter">
       <input
@@ -13,51 +19,13 @@ export function FrontMatterBar({ matter, onChange }: FrontMatterBarProps) {
         data-testid="title-input"
         value={matter.title}
         placeholder="标题"
+        aria-label="标题"
         onChange={(event) => onChange({ ...matter, title: event.target.value })}
       />
-      <div className="meta-row">
-        <label>
-          日期
-          <input
-            type="text"
-            data-testid="matter-date"
-            value={matter.date}
-            onChange={(event) => onChange({ ...matter, date: event.target.value })}
-          />
-        </label>
-        <label>
-          标签
-          <input
-            type="text"
-            data-testid="matter-tags"
-            value={matter.tags.join(", ")}
-            placeholder="comma, separated"
-            onChange={(event) =>
-              onChange({
-                ...matter,
-                tags: event.target.value.split(",").map((item) => item.trim()).filter(Boolean),
-              })
-            }
-          />
-        </label>
-        <label>
-          分类
-          <input
-            type="text"
-            data-testid="matter-categories"
-            value={matter.categories.join(", ")}
-            onChange={(event) =>
-              onChange({
-                ...matter,
-                categories: event.target.value
-                  .split(",")
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-              })
-            }
-          />
-        </label>
-      </div>
+      <button type="button" className="meta-summary" data-testid="btn-doc-meta" aria-label="文章属性" onClick={onOpenMeta}>
+        <span>{summary || "设置日期、标签、分类"}</span>
+        <AdjustmentsHorizontalIcon className="ui-icon meta-summary-action" aria-hidden="true" />
+      </button>
     </div>
   );
 }

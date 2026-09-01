@@ -1,6 +1,8 @@
+import { ArrowLeftIcon, RocketLaunchIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useEffect, useState } from "react";
 import { pagesUrl, THEME_META, type ThemeId } from "@open-pages/shared";
 import { api, type AuthUser, type GithubRepo } from "../lib/api";
+import { GitHubMark } from "./GitHubMark";
 import { StudioBar } from "./StudioBar";
 
 interface PublishPageProps {
@@ -51,13 +53,15 @@ export function PublishPage({
   return (
     <div className="studio studio-github" data-testid="publish-page">
       <StudioBar
-        step={2}
+        title="发布到 GitHub"
         actions={
           <>
-            <button type="button" className="ghost" data-testid="publish-back" onClick={onBack}>
-              上一步
+            <button type="button" className="ghost icon-label" data-testid="publish-back" onClick={onBack}>
+              <ArrowLeftIcon className="ui-icon" aria-hidden="true" />
+              返回编辑
             </button>
-            <button type="button" className="ghost" onClick={onClose}>
+            <button type="button" className="ghost icon-label" onClick={onClose}>
+              <XMarkIcon className="ui-icon" aria-hidden="true" />
               取消
             </button>
           </>
@@ -65,12 +69,14 @@ export function PublishPage({
       />
       <div className="publish-form" data-testid="dialog-publish">
         <p className="hint">
-          当前主题 <strong>{THEME_META[theme].label}</strong>。源码提交到 main，Hexo 产物提交到 gh-pages。
+          当前主题 <strong>{THEME_META[theme].label}</strong>
+          ，可在站点设置里更换。源码提交到 main，Hexo 产物提交到 gh-pages。
         </p>
         {!user?.login ? (
           <>
             <p>先登录 GitHub，再选择仓库。</p>
-            <button type="button" className="primary" data-testid="publish-login" onClick={onLogin}>
+            <button type="button" className="primary icon-label" data-testid="publish-login" onClick={onLogin}>
+              <GitHubMark className="ui-icon" />
               登录 GitHub
             </button>
           </>
@@ -119,10 +125,11 @@ export function PublishPage({
             )}
             <button
               type="button"
-              className="primary"
+              className="primary icon-label"
               disabled={busy || !repo}
               onClick={() => onPublish({ repo, createRepo: createNew })}
             >
+              <RocketLaunchIcon className="ui-icon" aria-hidden="true" />
               {busy ? "发布中…" : "Hexo 发布"}
             </button>
           </>

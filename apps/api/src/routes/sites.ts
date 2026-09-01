@@ -5,6 +5,7 @@ import { generateSite, listPublicFiles } from "@open-pages/hexo-runner";
 import {
   DEFAULT_SITE_CONFIG,
   isSafeSiteId,
+  isUserEditablePath,
   pagesRoot,
   pagesUrl,
   parseRepoName,
@@ -17,8 +18,13 @@ import type { SessionData } from "../session.js";
 import { ownerKey } from "../session.js";
 import { ensureSite, previewMount, previewSite, resetSite, syncSite } from "../lib/workspace.js";
 import { commitFiles, createRepo, enablePages, listRepos } from "../lib/github.js";
+import { createConcurrencyGate, createRateLimiter } from "../lib/rate-limit.js";
 
 export const siteRoutes = new Hono<{ Variables: { session: SessionData } }>();
+
+const previewLimiter = createRateLimiter({ windowMs: 60_000, max: 8 });
+const publishLimiter = createRateLimiter({ windowMs: 60_000, max: 3 });
+const generateGate = createConcurrencyGate(2);
 
 function siteIdParam(c: { req: { param: (name: string) => string } }): string {
   const siteId = c.req.param("siteId");
@@ -29,6 +35,20 @@ function siteIdParam(c: { req: { param: (name: string) => string } }): string {
 function optionalConfig(raw: unknown): SiteConfig | undefined {
   if (raw == null) return undefined;
   return parseSiteConfig(raw);
+}
+
+function assertGenerateBudget(session: SessionData, kind: "preview" | "publish"): void {
+  const key = `${kind}:${ownerKey(session)}`;
+  const limiter = kind === "preview" ? previewLimiter : publishLimiter;
+  const result = limiter.check(key);
+  if (!result.ok) {
+    throw new ClientError("Too many requests, try again shortly", 429);
+  }
+}
+
+/** Only commit paths the server would accept for workspace writes. */
+function publishableSourceFiles(files: SiteFile[]): SiteFile[] {
+  return files.filter((file) => isUserEditablePath(file.path));
 }
 
 siteRoutes.get("/github/repos", async (c) => {
@@ -62,9 +82,12 @@ siteRoutes.post("/:siteId/sync", async (c) => {
 
 siteRoutes.post("/:siteId/preview", async (c) => {
   const session = c.get("session");
+  assertGenerateBudget(session, "preview");
   const body = (await c.req.json()) as { files: SiteFile[]; config?: unknown };
   const siteId = siteIdParam(c);
-  const result = await previewSite(ownerKey(session), siteId, body.files ?? [], optionalConfig(body.config));
+  const result = await generateGate.run(() =>
+    previewSite(ownerKey(session), siteId, body.files ?? [], optionalConfig(body.config)),
+  );
   return c.json({
     ok: true,
     elapsedMs: result.elapsedMs,
@@ -83,6 +106,7 @@ siteRoutes.post("/:siteId/publish", async (c) => {
   if (!session.accessToken || !session.login) {
     return c.json({ error: "Not signed in" }, 401);
   }
+  assertGenerateBudget(session, "publish");
   const body = (await c.req.json()) as {
     files: SiteFile[];
     config?: unknown;
@@ -109,14 +133,14 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     : undefined;
 
   const dir = await syncSite(ownerKey(session), siteIdParam(c), body.files ?? [], config);
-  const sourceFiles = (body.files ?? []).filter((file) => !file.path.startsWith("public/"));
+  const sourceFiles = publishableSourceFiles(body.files ?? []).filter((file) => file.path !== "_config.yml");
   try {
     sourceFiles.push({
       path: "_config.yml",
       content: await readFile(join(dir, "_config.yml"), "utf8"),
     });
   } catch {
-    // keep client copy
+    // keep empty if missing
   }
 
   await commitFiles({
@@ -128,7 +152,7 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     files: sourceFiles,
   });
 
-  await generateSite(dir);
+  await generateGate.run(() => generateSite(dir));
   const publicFiles = await listPublicFiles(join(dir, "public"));
   await commitFiles({
     token: session.accessToken,

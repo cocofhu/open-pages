@@ -39,13 +39,18 @@ app.get("/preview/:siteId/*", async (c) => {
   const siteId = c.req.param("siteId");
   if (!isSafeSiteId(siteId)) return c.notFound();
   const leftover = c.req.path.slice(`/preview/${siteId}`.length);
-  const file = await readPublicFile(ownerKey(session), siteId, leftover || "index.html");
+  const rel = leftover.replace(/\/+$/, "") || "index.html";
+  const file = await readPublicFile(ownerKey(session), siteId, rel);
   if (!file) return c.notFound();
-  const path = leftover || "/index.html";
+  const path = leftover.replace(/\/+$/, "") || "/index.html";
   return new Response(file, {
     headers: {
       "content-type": contentType(path),
       "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": previewCsp(path),
+      "referrer-policy": "no-referrer",
+      "x-frame-options": "SAMEORIGIN",
     },
   });
 });
@@ -60,6 +65,17 @@ app.onError((error, c) => {
   return c.json({ error: "Server error" }, 500);
 });
 
+function previewCsp(path: string): string {
+  if (path.endsWith(".css")) return "default-src 'none'; style-src 'unsafe-inline'";
+  if (/\.(js|mjs)$/i.test(path)) return "default-src 'none'";
+  return (
+    "default-src 'none'; base-uri 'none'; form-action 'self'; " +
+    "script-src 'none'; style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https: blob:; font-src 'self' data:; " +
+    "connect-src 'none'; frame-src 'none'; object-src 'none'"
+  );
+}
+
 function contentType(path: string): string {
   if (path.endsWith(".css")) return "text/css; charset=utf-8";
   if (path.endsWith(".js")) return "text/javascript; charset=utf-8";
@@ -73,7 +89,12 @@ function contentType(path: string): string {
   if (path.endsWith(".ico")) return "image/x-icon";
   if (path.endsWith(".woff")) return "font/woff";
   if (path.endsWith(".woff2")) return "font/woff2";
-  return "text/html; charset=utf-8";
+  if (path.endsWith(".ttf")) return "font/ttf";
+  if (path.endsWith(".otf")) return "font/otf";
+  if (path.endsWith(".eot")) return "application/vnd.ms-fontobject";
+  if (path.endsWith(".map")) return "application/json; charset=utf-8";
+  if (/\.html?$/i.test(path) || path.endsWith("/")) return "text/html; charset=utf-8";
+  return "application/octet-stream";
 }
 
 serve({ fetch: app.fetch, port: env.port }, (info) => {

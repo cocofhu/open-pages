@@ -92,7 +92,7 @@ export async function previewSite(
     root,
   });
   const dir = await syncSite(owner, siteId, files, previewConfig);
-  return generateSite(dir);
+  return generateSite(dir, { rebaseRoot: root });
 }
 
 export async function readPublicFile(owner: string, siteId: string, relPath: string): Promise<Buffer | null> {
@@ -103,8 +103,8 @@ export async function readPublicFile(owner: string, siteId: string, relPath: str
     return null;
   }
   const publicRoot = resolve(dir, "public");
-  const safe = relPath.replace(/^\/+/, "").replaceAll("\\", "/");
-  if (!safe || safe.includes("..")) return null;
+  const safe = relPath.replace(/^\/+/, "").replace(/\/+$/, "").replaceAll("\\", "/");
+  if (safe.includes("..")) return null;
 
   const tryRead = async (abs: string): Promise<Buffer | null> => {
     if (!isInside(publicRoot, abs)) return null;
@@ -121,10 +121,13 @@ export async function readPublicFile(owner: string, siteId: string, relPath: str
     }
   };
 
-  return (
+  const found =
     (await tryRead(resolve(publicRoot, safe))) ??
-    (await tryRead(resolve(publicRoot, safe, "index.html")))
-  );
+    (await tryRead(resolve(publicRoot, safe, "index.html")));
+  if (found) return found;
+  const looksLikePage = !safe.includes(".") || /\.html?$/i.test(safe);
+  if (looksLikePage) return tryRead(resolve(publicRoot, "index.html"));
+  return null;
 }
 
 export async function resetSite(owner: string, siteId: string): Promise<void> {
