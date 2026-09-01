@@ -33,7 +33,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
     permissions:
-      contents: ${{ startsWith(github.ref, 'refs/tags/v') && 'write' || 'read' }}
+      contents: write
     strategy:
       fail-fast: false
       matrix:
