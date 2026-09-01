@@ -30,9 +30,13 @@ export default defineConfig({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [
           /^\/auth(?:\/|$)/,
+          /^\/addons(?:\/|$)/,
           /^\/sites(?:\/|$)/,
-          /^\/preview(?:\/|$)/,
           /^\/health(?:\/|$)/,
+          // Previews moved to their own origin. A leftover tab or bookmark on
+          // the old same-origin path should get a plain 404 rather than the app
+          // shell rendered into a frame-shaped blank page.
+          /^\/preview(?:\/|$)/,
         ],
       },
     }),
@@ -41,8 +45,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/auth": { target: "http://localhost:8787", changeOrigin: true },
+      "/addons": { target: "http://localhost:8787", changeOrigin: true },
       "/sites": { target: "http://localhost:8787", changeOrigin: true },
-      "/preview": { target: "http://localhost:8787", changeOrigin: true },
       "/health": { target: "http://localhost:8787", changeOrigin: true },
     },
   },

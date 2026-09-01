@@ -81,9 +81,14 @@ export async function commitFiles(options: {
   branch: string;
   message: string;
   files: SiteFile[];
+  /** Replace the branch snapshot instead of merging onto the existing tree. */
+  replace?: boolean;
 }): Promise<string> {
   const gh = octokit(options.token);
-  const { owner, repo, branch, message, files } = options;
+  const { owner, repo, branch, message, files, replace } = options;
+  if (!files.length) {
+    throw new Error("Cannot commit an empty tree");
+  }
   let parentSha: string | undefined;
   let baseTree: string | undefined;
   try {
@@ -117,7 +122,7 @@ export async function commitFiles(options: {
   const tree = await gh.git.createTree({
     owner,
     repo,
-    base_tree: baseTree,
+    ...(replace ? {} : { base_tree: baseTree }),
     tree: treeItems,
   });
 

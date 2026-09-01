@@ -10,7 +10,13 @@
     "dev": "pnpm --parallel --filter @open-pages/api --filter @open-pages/web dev",
     "build": "pnpm --filter @open-pages/shared build && pnpm --filter @open-pages/hexo-runner build && pnpm --filter @open-pages/api build && pnpm --filter @open-pages/web build",
     "typecheck": "pnpm -r --if-present run typecheck",
-    "test:e2e": "playwright test --config e2e/playwright.config.ts"
+    "test:themes": "pnpm --filter @open-pages/api exec tsx ../../verify-themes.ts",
+    "test:theme-settings": "pnpm --filter @open-pages/api exec tsx ../../verify-theme-settings.ts",
+    "test:addons": "pnpm --filter @open-pages/api exec tsx ../../verify-addons.ts",
+    "test:preview-visible": "pnpm --filter @open-pages/api exec tsx ../../verify-preview-visible.ts",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e-core": "playwright test --config e2e/playwright.config.ts app.spec.ts",
+    "test:e2e-themes": "playwright test --config e2e/playwright.config.ts themes.spec.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"
