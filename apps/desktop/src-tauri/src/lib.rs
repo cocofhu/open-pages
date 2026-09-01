@@ -49,27 +49,19 @@ fn bundled_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn node_sidecar_name() -> &'static str {
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    {
-        return "node-x86_64-pc-windows-msvc.exe";
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        "node-x86_64-pc-windows-msvc.exe"
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "node-aarch64-apple-darwin"
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        "node-x86_64-apple-darwin"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "node-x86_64-unknown-linux-gnu"
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        "node-aarch64-unknown-linux-gnu"
+    } else {
+        "node"
     }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        return "node-aarch64-apple-darwin";
-    }
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    {
-        return "node-x86_64-apple-darwin";
-    }
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        return "node-x86_64-unknown-linux-gnu";
-    }
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    {
-        return "node-aarch64-unknown-linux-gnu";
-    }
-    "node"
 }
 
 fn resolve_node_binary() -> Result<PathBuf, String> {
