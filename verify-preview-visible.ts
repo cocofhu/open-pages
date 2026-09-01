@@ -111,7 +111,19 @@ try {
         const context = await browser.newContext({ viewport: VIEWPORT });
         const page = await context.newPage();
         try {
-          await page.goto(`${origin}${mount}`, { waitUntil: "load", timeout: 60_000 });
+          // ParticleX and similar themes pull fonts/CDN scripts that hang in CI
+          // and never fire `load`. This sweep only judges locally generated HTML.
+          await page.route("**/*", (route) => {
+            const url = route.request().url();
+            if (url.startsWith(origin) || url.startsWith("data:")) return route.continue();
+            return route.abort();
+          });
+          const target = `${origin}${mount}`;
+          try {
+            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
+          } catch {
+            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
+          }
           // Themes fade their loader out and run entrance animations after load,
           // so measure only once those have had time to finish.
           await page.waitForTimeout(2500);
