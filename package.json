@@ -10,7 +10,7 @@
     "dev": "pnpm --parallel --filter @open-pages/api --filter @open-pages/web dev",
     "dev:desktop": "pnpm --filter @open-pages/desktop dev",
     "build": "pnpm --filter @open-pages/shared build && pnpm --filter @open-pages/github build && pnpm --filter @open-pages/github-auth build && pnpm --filter @open-pages/hexo-runner build && pnpm --filter @open-pages/publish build && pnpm --filter @open-pages/api build && pnpm --filter @open-pages/web build",
-    "build:desktop": "pnpm build && pnpm --filter @open-pages/desktop build",
+    "build:desktop": "pnpm build && pnpm --filter @open-pages/desktop prepare-runtime && pnpm --filter @open-pages/desktop build",
     "test:github-auth": "pnpm --filter @open-pages/github-auth test",
     "test:manifest": "pnpm --filter @open-pages/shared test",
     "typecheck": "pnpm -r --if-present run typecheck",

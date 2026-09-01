@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "prepare-runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "runtime": "tsx runtime/host.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -13,12 +14,12 @@
     "@open-pages/github": "workspace:*",
     "@open-pages/hexo-runner": "workspace:*",
     "@open-pages/publish": "workspace:*",
-    "@open-pages/shared": "workspace:*"
+    "@open-pages/shared": "workspace:*",
+    "tsx": "^4.20.5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.4",
     "@types/node": "^22.18.0",
-    "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
 }

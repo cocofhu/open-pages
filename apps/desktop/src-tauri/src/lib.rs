@@ -1,15 +1,19 @@
 mod github_auth;
 
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
+use tauri::path::BaseDirectory;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const CONTROL_ORIGIN: &str = "http://127.0.0.1:3848";
 
+static APP: OnceLock<AppHandle> = OnceLock::new();
 static RUNTIME: Mutex<Option<Child>> = Mutex::new(None);
 
 #[derive(Serialize)]
@@ -22,38 +26,148 @@ struct AuthUser {
     github_enabled: bool,
 }
 
-fn runtime_script() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../runtime/host.ts")
+fn app_handle() -> Result<&'static AppHandle, String> {
+    APP.get().ok_or_else(|| "desktop app is not ready".into())
 }
 
-fn start_runtime() -> Result<(), String> {
-    let mut slot = RUNTIME.lock().map_err(|e| e.to_string())?;
-    if let Some(child) = slot.as_mut() {
-        if child.try_wait().ok().flatten().is_none() {
-            return Ok(());
+fn dev_runtime_script() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../runtime/host.ts")
+}
+
+fn dev_desktop_dir() -> Result<PathBuf, String> {
+    dev_runtime_script()
+        .parent()
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "invalid runtime path".into())
+}
+
+fn bundled_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .resolve("runtime-bundle", BaseDirectory::Resource)
+        .map_err(|error| format!("desktop runtime bundle missing: {error}"))
+}
+
+fn node_sidecar_name() -> &'static str {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        return "node-x86_64-pc-windows-msvc.exe";
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return "node-aarch64-apple-darwin";
+    }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        return "node-x86_64-apple-darwin";
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        return "node-x86_64-unknown-linux-gnu";
+    }
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    {
+        return "node-aarch64-unknown-linux-gnu";
+    }
+    "node"
+}
+
+fn resolve_node_binary() -> Result<PathBuf, String> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sidecar = dir.join(node_sidecar_name());
+            if sidecar.exists() {
+                return Ok(sidecar);
+            }
         }
     }
-    let script = runtime_script();
+    if command_exists("node") {
+        return Ok(PathBuf::from("node"));
+    }
+    Err("Node.js runtime not found. Reinstall Open Pages or install Node.js 20+.".into())
+}
+
+fn command_exists(name: &str) -> bool {
+    let program = if cfg!(windows) { "where" } else { "which" };
+    Command::new(program)
+        .arg(name)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn tsx_entry(bundle_dir: &Path) -> PathBuf {
+    bundle_dir.join("node_modules/tsx/dist/cli.mjs")
+}
+
+fn spawn_runtime(child: Child) -> Result<(), String> {
+    wait_for_health()?;
+    let mut slot = RUNTIME.lock().map_err(|error| error.to_string())?;
+    *slot = Some(child);
+    Ok(())
+}
+
+fn start_runtime_dev() -> Result<(), String> {
+    let script = dev_runtime_script();
     if !script.exists() {
         return Err(format!("desktop runtime missing: {}", script.display()));
     }
-    let desktop_dir = script
-        .parent()
-        .and_then(|p| p.parent())
-        .ok_or("invalid runtime path")?;
+    let desktop_dir = dev_desktop_dir()?;
     let child = Command::new("pnpm")
         .args(["exec", "tsx", script.to_string_lossy().as_ref()])
-        .current_dir(desktop_dir)
+        .current_dir(&desktop_dir)
         .env("OPEN_PAGES_CONTROL_PORT", "3848")
         .env("OPEN_PAGES_PREVIEW_PORT", "8788")
         .env("OPEN_PAGES_PREVIEW_ORIGIN", "http://127.0.0.1:8788")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(|e| format!("failed to start desktop runtime: {e}"))?;
-    wait_for_health()?;
-    *slot = Some(child);
-    Ok(())
+        .map_err(|error| format!("failed to start desktop runtime: {error}"))?;
+    spawn_runtime(child)
+}
+
+fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
+    let bundle_dir = bundled_runtime_dir(app)?;
+    let script = bundle_dir.join("runtime/host.ts");
+    if !script.exists() {
+        return Err(format!("desktop runtime missing: {}", script.display()));
+    }
+    let node = resolve_node_binary()?;
+    let tsx = tsx_entry(&bundle_dir);
+    if !tsx.exists() {
+        return Err(format!("desktop runtime missing tsx: {}", tsx.display()));
+    }
+    let child = Command::new(node)
+        .arg(&tsx)
+        .arg(&script)
+        .current_dir(&bundle_dir)
+        .env("OPEN_PAGES_CONTROL_PORT", "3848")
+        .env("OPEN_PAGES_PREVIEW_PORT", "8788")
+        .env("OPEN_PAGES_PREVIEW_ORIGIN", "http://127.0.0.1:8788")
+        .env("NODE_ENV", "production")
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|error| format!("failed to start desktop runtime: {error}"))?;
+    spawn_runtime(child)
+}
+
+fn start_runtime() -> Result<(), String> {
+    let mut slot = RUNTIME.lock().map_err(|error| error.to_string())?;
+    if let Some(child) = slot.as_mut() {
+        if child.try_wait().ok().flatten().is_none() {
+            return Ok(());
+        }
+    }
+    drop(slot);
+
+    if cfg!(debug_assertions) {
+        start_runtime_dev()
+    } else {
+        start_runtime_release(app_handle()?)
+    }
 }
 
 fn wait_for_health() -> Result<(), String> {
@@ -61,7 +175,7 @@ fn wait_for_health() -> Result<(), String> {
         if std::net::TcpStream::connect_timeout(
             &"127.0.0.1:3848"
                 .parse::<std::net::SocketAddr>()
-                .map_err(|e| e.to_string())?,
+                .map_err(|error| error.to_string())?,
             Duration::from_millis(150),
         )
         .is_ok()
@@ -96,7 +210,7 @@ async fn control_request(
     if let Some(body) = body {
         req = req.json(&body);
     }
-    let response = req.send().await.map_err(|e| e.to_string())?;
+    let response = req.send().await.map_err(|error| error.to_string())?;
     let status = response.status();
     let value = response.json::<Value>().await.unwrap_or(Value::Null);
     if !status.is_success() {
@@ -122,10 +236,15 @@ fn current_user() -> AuthUser {
 
 #[tauri::command]
 async fn github_login(app: tauri::AppHandle) -> Result<AuthUser, String> {
+    if github_auth::client_id().is_empty() {
+        return Err(
+            "GitHub Client ID is missing in this build. Reinstall a release built with OPEN_PAGES_GITHUB_CLIENT_ID, or set GITHUB_CLIENT_ID before launching.".into(),
+        );
+    }
     let session = github_auth::login(|url| {
         app.opener()
             .open_url(url, None::<&str>)
-            .map_err(|e| e.to_string())
+            .map_err(|error| error.to_string())
     })
     .await?;
     Ok(AuthUser {
@@ -194,11 +313,15 @@ async fn check_repo_publish(owner: String, repo: String, site_id: String) -> Res
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    if let Err(error) = start_runtime() {
-        eprintln!("{error}");
-    }
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let _ = APP.set(app.handle().clone());
+            if let Err(error) = start_runtime() {
+                eprintln!("{error}");
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             github_login,
             github_logout,

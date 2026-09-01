@@ -27,6 +27,7 @@ import {
   type ThemeSettings,
 } from "@open-pages/shared";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { errorMessage } from "./lib/errors";
 import type { SettingsDraft } from "./components/SettingsPage";
 import { DocMetaPanel } from "./components/DocMetaPanel";
 import { MarkdownEditor, SourceEditor, type SourceEditorHandle } from "./components/Editor";
@@ -355,7 +356,7 @@ export function App() {
       } catch (error) {
         if (request === themePreviewRequestRef.current) {
           setThemePreviewUrl(null);
-          setThemePreviewError(error instanceof Error ? error.message : "预览失败");
+          setThemePreviewError(errorMessage(error, "预览失败"));
         }
       } finally {
         if (request === themePreviewRequestRef.current) setPreviewing(false);
@@ -452,7 +453,7 @@ export function App() {
       void renderSettingsPreview(safe, saved);
       return saved;
     } catch (error) {
-      setToast({ kind: "error", text: error instanceof Error ? error.message : "保存失败" });
+      setToast({ kind: "error", text: errorMessage(error, "保存失败") });
       throw error;
     } finally {
       setSettingsSaving(false);
@@ -499,7 +500,7 @@ export function App() {
       });
     } catch (error) {
       if (tab && !tab.closed) tab.close();
-      setToast({ kind: "error", text: error instanceof Error ? error.message : "预览失败" });
+      setToast({ kind: "error", text: errorMessage(error, "预览失败") });
     } finally {
       setPreviewing(false);
     }
@@ -542,7 +543,7 @@ export function App() {
       });
     } catch (error) {
       if (tab && !tab.closed) tab.close();
-      setToast({ kind: "error", text: error instanceof Error ? error.message : "预览失败" });
+      setToast({ kind: "error", text: errorMessage(error, "预览失败") });
     } finally {
       setPreviewing(false);
     }
@@ -555,7 +556,7 @@ export function App() {
         if (next) setUser(next);
       })
       .catch((error: unknown) => {
-        setToast({ kind: "error", text: error instanceof Error ? error.message : "登录失败" });
+        setToast({ kind: "error", text: errorMessage(error, "登录失败") });
       });
   };
 
@@ -587,7 +588,7 @@ export function App() {
       setPublishStatus("");
       setPublishUrl(result.url);
     } catch (error) {
-      setPublishStatus(error instanceof Error ? error.message : "发布失败");
+      setPublishStatus(errorMessage(error, "发布失败"));
     } finally {
       setPublishBusy(false);
     }

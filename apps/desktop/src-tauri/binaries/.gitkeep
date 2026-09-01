@@ -1,0 +1,1 @@
+# Node sidecars for release builds are downloaded in CI. See .github/workflows/desktop.yml.

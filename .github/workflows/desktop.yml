@@ -71,6 +71,38 @@ jobs:
 
       - run: pnpm build
 
+      - name: Prepare desktop runtime bundle
+        run: node scripts/prepare-desktop-runtime.mjs
+
+      - name: Bundle Node.js sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          NODE_VERSION=22.18.0
+          DEST=apps/desktop/src-tauri/binaries
+          mkdir -p "$DEST"
+          case "${{ matrix.label }}" in
+            windows-x64)
+              curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-x64.zip" -o /tmp/node.zip
+              unzip -j /tmp/node.zip "node-v${NODE_VERSION}-win-x64/node.exe" -d "$DEST"
+              mv "$DEST/node.exe" "$DEST/node-x86_64-pc-windows-msvc.exe"
+              ;;
+            macos-arm64)
+              curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz" -o /tmp/node.tgz
+              tar -xzf /tmp/node.tgz -C /tmp
+              install -m 755 "/tmp/node-v${NODE_VERSION}-darwin-arm64/bin/node" "$DEST/node-aarch64-apple-darwin"
+              ;;
+            macos-x64)
+              curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-x64.tar.gz" -o /tmp/node.tgz
+              tar -xzf /tmp/node.tgz -C /tmp
+              install -m 755 "/tmp/node-v${NODE_VERSION}-darwin-x64/bin/node" "$DEST/node-x86_64-apple-darwin"
+              ;;
+            *)
+              echo "Unknown matrix label: ${{ matrix.label }}"
+              exit 1
+              ;;
+          esac
+
       - name: Require GitHub Client ID for release builds
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
