@@ -1,11 +1,13 @@
 {
   "name": "@open-pages/desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "frontend:dev": "node ../../scripts/tauri-web.mjs dev",
+    "frontend:build": "node ../../scripts/tauri-web.mjs build",
     "prepare-runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "runtime": "tsx runtime/host.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
