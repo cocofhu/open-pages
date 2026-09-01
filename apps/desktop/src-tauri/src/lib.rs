@@ -42,10 +42,36 @@ fn dev_desktop_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "invalid runtime path".into())
 }
 
+fn search_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            dirs.push(dir.to_path_buf());
+        }
+    }
+    if let Ok(resource) = app.path().resource_dir() {
+        dirs.push(resource.clone());
+        if let Some(parent) = resource.parent() {
+            dirs.push(parent.to_path_buf());
+            dirs.push(parent.join("MacOS"));
+        }
+    }
+    if let Ok(resolved) = app.path().resolve("runtime-bundle", BaseDirectory::Resource) {
+        if let Some(parent) = resolved.parent() {
+            dirs.push(parent.to_path_buf());
+        }
+    }
+    dirs
+}
+
 fn bundled_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .resolve("runtime-bundle", BaseDirectory::Resource)
-        .map_err(|error| format!("desktop runtime bundle missing: {error}"))
+    for dir in search_dirs(app) {
+        let candidate = dir.join("runtime-bundle");
+        if candidate.join("runtime/host.ts").exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("desktop runtime bundle missing next to the app (runtime-bundle/runtime/host.ts)".into())
 }
 
 fn node_sidecar_name() -> &'static str {
@@ -65,27 +91,19 @@ fn node_sidecar_name() -> &'static str {
 }
 
 fn resolve_node_binary(app: &AppHandle) -> Result<PathBuf, String> {
-    let name = node_sidecar_name();
-    let mut candidates = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join(name));
+    let names = [node_sidecar_name(), "node.exe", "node"];
+    for dir in search_dirs(app) {
+        for name in names {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
         }
-    }
-    if let Ok(resource) = app.path().resource_dir() {
-        candidates.push(resource.join(name));
-        if let Some(parent) = resource.parent() {
-            candidates.push(parent.join(name));
-            candidates.push(parent.join("MacOS").join(name));
-        }
-    }
-    if let Some(found) = candidates.into_iter().find(|path| path.exists()) {
-        return Ok(found);
     }
     if command_exists("node") {
         return Ok(PathBuf::from("node"));
     }
-    Err("Node.js runtime not found. Reinstall Open Pages 0.1.1 or later.".into())
+    Err("Node.js runtime not found next to the app. Reinstall Open Pages 0.1.1 or later.".into())
 }
 
 fn open_in_browser(app: &AppHandle, url: &str) -> Result<(), String> {
