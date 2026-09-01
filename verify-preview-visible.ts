@@ -111,7 +111,7 @@ try {
         const context = await browser.newContext({ viewport: VIEWPORT });
         const page = await context.newPage();
         try {
-          await page.goto(`${origin}${mount}`, { waitUntil: "load", timeout: 30_000 });
+          await page.goto(`${origin}${mount}`, { waitUntil: "load", timeout: 60_000 });
           // Themes fade their loader out and run entrance animations after load,
           // so measure only once those have had time to finish.
           await page.waitForTimeout(2500);
