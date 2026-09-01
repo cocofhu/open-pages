@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
-pub const LOOPBACK_REDIRECT: &str = "http://127.0.0.1:3847/auth/callback";
 const SERVICE: &str = "open-pages";
 const TOKEN_ACCOUNT: &str = "github-token";
 const SESSION_ACCOUNT: &str = "github-session";

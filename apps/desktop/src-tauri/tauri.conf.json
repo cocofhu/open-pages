@@ -2,11 +2,11 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Open Pages",
   "version": "0.1.2",
-  "identifier": "com.openpages.app",
+  "identifier": "com.openpages.desktop",
   "build": {
-    "beforeDevCommand": "pnpm --dir ../../.. --filter @open-pages/web dev",
+    "beforeDevCommand": "node ../../../scripts/tauri-web.mjs dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "pnpm --dir ../../.. --filter @open-pages/web build",
+    "beforeBuildCommand": "node ../../../scripts/tauri-web.mjs build",
     "frontendDist": "../../web/dist"
   },
   "app": {

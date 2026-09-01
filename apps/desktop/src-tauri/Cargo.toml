@@ -1,6 +1,6 @@
 [package]
 name = "open-pages-desktop"
-version = "0.1.0"
+version = "0.1.2"
 description = "Open Pages desktop client"
 authors = ["Open Pages"]
 edition = "2021"
@@ -13,18 +13,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-base64 = "0.22"
 keyring = "3"
-rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-url = "2"
-urlencoding = "2"
 
 [profile.release]
 panic = "abort"
