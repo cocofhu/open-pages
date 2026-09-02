@@ -266,7 +266,9 @@ export function App() {
         (event) => {
           setToast({
             kind: "info",
-            text: `在 GitHub 输入验证码 ${event.payload.userCode} 完成登录`,
+            text: "在 GitHub 输入验证码",
+            copyText: event.payload.userCode,
+            suffix: "完成登录",
             href: event.payload.verificationUri,
             linkText: "打开 GitHub",
             sticky: true,

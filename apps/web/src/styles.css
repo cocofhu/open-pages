@@ -1158,6 +1158,33 @@ li + li > .outline-item.level-1 {
   color: inherit;
 }
 
+.toast-message {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.toast-code {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.toast-copy {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.toast-copy:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
 .toast-close {
   display: grid;
   place-items: center;
@@ -1168,6 +1195,7 @@ li + li > .outline-item.level-1 {
 }
 
 .toast-close .ui-icon,
+.toast-copy .ui-icon,
 .toast a .ui-icon {
   width: 15px;
   height: 15px;
