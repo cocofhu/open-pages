@@ -338,7 +338,7 @@ export function PublishPage({
                   disabled={busy || previewing || !canPublish || (!online && !isTauri())}
                   title={
                     online || isTauri()
-                      ? "按 GitHub Pages 路径预览，将在新标签打开"
+                      ? "按 GitHub Pages 路径预览，在应用内打开"
                       : "预览需要联网"
                   }
                   onClick={() => onPreview({ repo, owner })}

@@ -86,7 +86,7 @@ export function TopBar({
           className="ghost icon-label"
           data-testid="btn-preview"
           disabled={previewing || (!online && !isTauri())}
-          title={online || isTauri() ? "用 Hexo 渲染并在新标签打开" : "预览需要联网"}
+          title={online || isTauri() ? "用 Hexo 渲染并在应用内打开" : "预览需要联网"}
           onClick={onPreview}
         >
           <EyeIcon className="ui-icon" aria-hidden="true" />

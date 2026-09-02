@@ -35,6 +35,7 @@ import { FilesPage, type FileEntry } from "./components/FilesPage";
 import { Outline } from "./components/Outline";
 import { FrontMatterBar } from "./components/FrontMatterBar";
 import { NewDocDialog, type DocKind } from "./components/NewDocDialog";
+import { PreviewOverlay } from "./components/PreviewOverlay";
 import { PublishPage } from "./components/PublishPage";
 import { SettingsPage, type SettingsTab } from "./components/SettingsPage";
 import { Toast, type ToastState } from "./components/Toast";
@@ -78,6 +79,7 @@ export function App() {
   const [publishStatus, setPublishStatus] = useState("");
   const [publishUrl, setPublishUrl] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<PreviewSession | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [newDocOpen, setNewDocOpen] = useState(false);
   const [newDocKind, setNewDocKind] = useState<DocKind>("post");
@@ -93,6 +95,8 @@ export function App() {
   const settingsDraftRef = useRef<SettingsDraft | null>(null);
   const settingsDirtyRef = useRef(false);
   const themePreviewRequestRef = useRef(0);
+  const previewRequestRef = useRef(0);
+  const previewReloadRef = useRef<() => void>(() => {});
   const pendingRouteRef = useRef<AppRoute | null>(null);
   const themeReadyRef = useRef(false);
   const routeRef = useRef(route);
@@ -506,34 +510,30 @@ export function App() {
       setToast({ kind: "error", text: "预览需要联网，由服务端运行 hexo generate。" });
       return;
     }
-    const tab = window.open("about:blank", "open-pages-preview");
-    if (tab) {
-      tab.document.title = "Hexo 预览";
-      tab.document.body.innerHTML =
-        '<p style="font:16px/1.6 system-ui;padding:24px;color:#6f685c">正在用 Hexo 生成站点…</p>';
-    }
+    previewReloadRef.current = () => void runPreview();
+    const request = ++previewRequestRef.current;
+    setPreview({
+      title: "Hexo 预览",
+      hint: "用当前草稿渲染，不写入本地",
+      url: null,
+      error: null,
+    });
     setPreviewing(true);
-    setToast({ kind: "info", text: "正在用 Hexo 生成，将在新标签打开…" });
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
       const result = await platform.preview(siteId(), filesSnapshot, config);
+      if (request !== previewRequestRef.current) return;
       const url = `${result.url}?t=${Date.now()}`;
-      if (tab && !tab.closed) {
-        tab.location.replace(url);
-      } else {
-        window.open(url, "open-pages-preview");
-      }
-      setToast({
-        kind: "ok",
-        text: `已在新标签打开 Hexo 预览（${result.elapsedMs}ms）`,
-        href: url,
-      });
+      setPreview((current) => (current ? { ...current, url, error: null } : current));
+      setToast({ kind: "ok", text: `Hexo 预览已就绪（${result.elapsedMs}ms）` });
     } catch (error) {
-      if (tab && !tab.closed) tab.close();
-      setToast({ kind: "error", text: errorMessage(error, "预览失败") });
+      if (request !== previewRequestRef.current) return;
+      const message = errorMessage(error, "预览失败");
+      setPreview((current) => (current ? { ...current, url: null, error: message } : current));
+      setToast({ kind: "error", text: message });
     } finally {
-      setPreviewing(false);
+      if (request === previewRequestRef.current) setPreviewing(false);
     }
   };
 
@@ -549,34 +549,33 @@ export function App() {
       url: pagesUrl(owner, opts.repo).replace(/\/$/, ""),
       root: pagesRoot(owner, opts.repo),
     });
-    const tab = window.open("about:blank", "open-pages-publish-preview");
-    if (tab) {
-      tab.document.title = "发布预览";
-      tab.document.body.innerHTML =
-        '<p style="font:16px/1.6 system-ui;padding:24px;color:#6f685c">正在按 GitHub Pages 路径生成预览…</p>';
-    }
+    previewReloadRef.current = () => void runPublishPreview(opts);
+    const request = ++previewRequestRef.current;
+    setPreview({
+      title: "发布预览",
+      hint: "路径与 GitHub Pages 一致",
+      url: null,
+      error: null,
+    });
     setPreviewing(true);
-    setToast({ kind: "info", text: "正在生成发布预览，将在新标签打开…" });
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
       const result = await platform.preview(siteId(), filesSnapshot, publishConfig);
+      if (request !== previewRequestRef.current) return;
       const url = `${result.url}?t=${Date.now()}`;
-      if (tab && !tab.closed) {
-        tab.location.replace(url);
-      } else {
-        window.open(url, "open-pages-publish-preview");
-      }
+      setPreview((current) => (current ? { ...current, url, error: null } : current));
       setToast({
         kind: "ok",
-        text: `已打开发布预览（${result.elapsedMs}ms），路径与 GitHub Pages 一致`,
-        href: url,
+        text: `发布预览已就绪（${result.elapsedMs}ms），路径与 GitHub Pages 一致`,
       });
     } catch (error) {
-      if (tab && !tab.closed) tab.close();
-      setToast({ kind: "error", text: errorMessage(error, "预览失败") });
+      if (request !== previewRequestRef.current) return;
+      const message = errorMessage(error, "预览失败");
+      setPreview((current) => (current ? { ...current, url: null, error: message } : current));
+      setToast({ kind: "error", text: message });
     } finally {
-      setPreviewing(false);
+      if (request === previewRequestRef.current) setPreviewing(false);
     }
   };
 
@@ -858,6 +857,20 @@ export function App() {
         }}
         onConfirm={discardSettingsAndLeave}
       />
+      <PreviewOverlay
+        open={Boolean(preview)}
+        title={preview?.title ?? ""}
+        hint={preview?.hint ?? ""}
+        url={preview?.url ?? null}
+        loading={Boolean(preview) && previewing}
+        error={preview?.error ?? null}
+        onReload={() => previewReloadRef.current()}
+        onClose={() => {
+          previewRequestRef.current += 1;
+          setPreview(null);
+          setPreviewing(false);
+        }}
+      />
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
@@ -870,6 +883,13 @@ type AppRoute =
   | "settings-site"
   | "settings-plugin"
   | "publish-github";
+
+interface PreviewSession {
+  title: string;
+  hint: string;
+  url: string | null;
+  error: string | null;
+}
 
 function isSettingsRoute(route: AppRoute) {
   return route === "settings" || route === "settings-site" || route === "settings-plugin";

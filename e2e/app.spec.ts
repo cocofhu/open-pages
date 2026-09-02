@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { assertNoBrokenPreviewLinks, collectFailedAssets } from "./crawl";
+import { assertNoBrokenPreviewLinks, collectFailedAssets, previewScopeFrom } from "./crawl";
 
 async function boot(page: Page) {
   await page.goto("/");
@@ -7,15 +7,28 @@ async function boot(page: Page) {
   await expect(page.getByTestId("title-input")).toHaveValue("Hello Open Pages");
 }
 
+/**
+ * The preview renders in an in-app overlay, so nothing here may open a browser
+ * tab; a popup would mean the old window.open path came back.
+ */
 async function openHexoPreview(page: Page) {
   const failed: string[] = [];
-  const popupPromise = page.waitForEvent("popup");
+  const popups: string[] = [];
+  page.on("popup", (popup) => popups.push(popup.url()));
+  collectFailedAssets(page, failed);
+
   await page.getByTestId("btn-preview").click();
-  const popup = await popupPromise;
-  collectFailedAssets(popup, failed);
-  await popup.waitForURL(/\/preview\/[^/]+\/(\?|$)/, { timeout: 40_000 });
-  await popup.waitForLoadState("networkidle");
-  return { popup, failed };
+  await expect(page.getByTestId("preview-overlay")).toBeVisible();
+  const frame = page.getByTestId("preview-frame");
+  // A cold hexo generate can run well past a minute on a fresh CI machine.
+  await expect(frame).toBeVisible({ timeout: 120_000 });
+
+  const src = (await frame.getAttribute("src")) ?? "";
+  expect(src, "preview frame has no src").toMatch(/\/preview\/[^/]+\//);
+  // Not networkidle on the app page: the Vite dev server holds an HMR socket
+  // open, so that state never arrives. Wait on the frame's own content instead.
+  await expect(page.frameLocator('[data-testid="preview-frame"]').locator("body")).toBeVisible();
+  return { src, failed, popups };
 }
 
 /**
@@ -244,21 +257,28 @@ test.describe("Open Pages editor", () => {
     await expect(page.getByTestId("title-input")).toBeVisible();
   });
 
-  test("opens a styled Hexo preview and crawls every local link", async ({ page }) => {
+  test("opens a styled Hexo preview in-app and crawls every local link", async ({ page }) => {
+    // A cold hexo generate plus the crawl outruns the default budget.
+    test.setTimeout(240_000);
     await boot(page);
-    const { popup, failed } = await openHexoPreview(page);
-    await expect(popup).toHaveTitle(/Open Pages/);
-    await expect(popup.locator("body")).toContainText(/Hello Open Pages|Open Pages/);
-    await assertNoBrokenPreviewLinks(popup);
+    const { src, failed, popups } = await openHexoPreview(page);
+
+    const preview = page.frameLocator('[data-testid="preview-frame"]');
+    await expect(preview.locator("body")).toContainText(/Hello Open Pages|Open Pages/);
+    await assertNoBrokenPreviewLinks(page, previewScopeFrom(src));
     expect(failed, `preview assets 404: ${failed.join("\n")}`).toEqual([]);
 
-    const header = popup.locator("#header");
+    const header = preview.locator("#header");
     await expect(header).toBeVisible();
     const headerHeight = await header.evaluate((el) => Number.parseFloat(getComputedStyle(el).height));
     expect(headerHeight, "landscape CSS did not apply; header is still unstyled").toBeGreaterThan(40);
 
+    expect(popups, `preview escaped into a browser tab: ${popups.join("\n")}`).toEqual([]);
+    await expect(page.getByTestId("toast")).toContainText(/Hexo 预览/);
+
+    await page.getByTestId("preview-close").click();
+    await expect(page.getByTestId("preview-overlay")).toHaveCount(0);
     await expect(page.getByTestId("title-input")).toBeVisible();
-    await expect(page.getByTestId("toast")).toContainText(/新标签|Hexo 预览/);
   });
 
   test("publish goes straight to GitHub", async ({ page }) => {

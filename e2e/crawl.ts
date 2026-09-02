@@ -5,12 +5,18 @@ const ASSET = /\.(js|css|png|jpe?g|gif|ico|svg|xml|json|woff2?|map)($|\?)/i;
 
 /**
  * A preview lives at /preview/<capability key>/ on its own origin, so the crawl
- * scope is read off the popup rather than hard-coded.
+ * scope is read off the preview URL rather than hard-coded. The preview now
+ * renders in an in-app iframe, so callers pass the frame's src here and hand in
+ * the editor page purely for its request context.
  */
-function previewScope(popup: Page): { origin: string; prefix: string } {
-  const url = new URL(popup.url());
+export function previewScopeFrom(href: string): { origin: string; prefix: string } {
+  const url = new URL(href);
   const [, mount, key] = url.pathname.split("/");
   return { origin: url.origin, prefix: `/${mount}/${key}` };
+}
+
+function previewScope(popup: Page): { origin: string; prefix: string } {
+  return previewScopeFrom(popup.url());
 }
 
 export async function crawlPreview(popup: Page, scope = previewScope(popup)) {

@@ -2264,6 +2264,97 @@ body:has(.studio) {
   background: #fff;
 }
 
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  /* Above the studio pages (25) that launch it, below modals (30) and toasts (40). */
+  z-index: 28;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--paper);
+}
+
+.preview-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+}
+
+.preview-overlay-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.preview-overlay-title strong {
+  font-family: var(--serif);
+  font-size: 15px;
+}
+
+.preview-overlay-title span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.preview-overlay-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview-overlay-actions .ghost {
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  line-height: var(--control-line-height);
+  padding: var(--control-pad-y) var(--control-pad-x);
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--muted);
+}
+
+.preview-overlay-actions .ghost:hover:not(:disabled) {
+  background: #efe6d8;
+  color: var(--ink);
+}
+
+.preview-overlay-actions .ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.preview-overlay-actions .icon-btn-plain {
+  display: inline-flex;
+  padding: var(--control-pad-y);
+}
+
+.preview-overlay-actions .ui-icon {
+  width: var(--control-icon);
+  height: var(--control-icon);
+}
+
+.preview-overlay-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: #fff;
+}
+
+.preview-overlay-body iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
 .studio-preview {
   position: relative;
   min-width: 0;
