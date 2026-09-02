@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, rm, writeFile, readFile, cp, symlink, lstat, readdir, rename, stat } from "node:fs/promises";
+import { mkdir, rm, writeFile, readFile, cp, symlink, lstat, readdir, rename, stat, unlink } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
 import {
   type SiteConfig,
@@ -330,19 +330,51 @@ async function runGenerate(
 }
 
 /**
- * Points `public/` at a finished build by swapping a symlink, so a preview
- * request can never observe a half-written directory.
+ * Windows directory symlinks need Developer Mode or admin rights and fail with
+ * EPERM otherwise. Junctions work for any local user; Node turns a relative
+ * target into an absolute path against `dest`'s parent.
+ */
+function directoryLinkType(): "junction" | "dir" {
+  return process.platform === "win32" ? "junction" : "dir";
+}
+
+async function linkDirectory(target: string, dest: string): Promise<void> {
+  await symlink(target, dest, directoryLinkType());
+}
+
+async function removeReplacedPath(path: string): Promise<void> {
+  const existing = await lstat(path).catch(() => null);
+  if (!existing) return;
+  // Unlink the pointer only. Recursive rm through a junction would delete the
+  // build we just finished.
+  if (existing.isSymbolicLink()) {
+    await unlink(path);
+    return;
+  }
+  await rm(path, { recursive: true, force: true });
+}
+
+/**
+ * Points `public/` at a finished build by swapping a symlink (junction on
+ * Windows), so a preview request can never observe a half-written directory.
  */
 async function publishBuild(siteDir: string, buildId: string): Promise<string> {
   const publicDir = join(siteDir, "public");
   const staged = join(siteDir, `.public.tmp-${buildId}`);
+  const target = join(BUILDS_DIR, buildId);
   await rm(staged, { recursive: true, force: true });
-  await symlink(join(BUILDS_DIR, buildId), staged, "dir");
   try {
-    // rename() cannot replace a real directory, only the symlink we manage.
+    await linkDirectory(target, staged);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EACCES" && code !== "ENOTSUP") throw error;
+    await cp(join(siteDir, target), staged, { recursive: true, dereference: true });
+  }
+  try {
     const existing = await lstat(publicDir).catch(() => null);
-    if (existing?.isDirectory() && !existing.isSymbolicLink()) {
-      await rm(publicDir, { recursive: true, force: true });
+    // Unix rename can replace a symlink. Windows cannot replace any existing dest.
+    if (existing && (process.platform === "win32" || (existing.isDirectory() && !existing.isSymbolicLink()))) {
+      await removeReplacedPath(publicDir);
     }
     await rename(staged, publicDir);
   } catch (error) {
@@ -443,7 +475,7 @@ async function ensureTheme(siteDir: string, theme: ThemeId, sourceOverride?: str
       // npm may hoist a custom theme's runtime dependencies next to the theme
       // package. Keep that complete install tree reachable after copying.
       await rm(join(staging, "node_modules"), { recursive: true, force: true });
-      await symlink(dirname(src), join(staging, "node_modules"), "dir");
+      await linkDirectory(dirname(src), join(staging, "node_modules"));
     }
     // Keyed to the files actually copied: patching a fallback copy as if it
     // were the requested theme would look for scripts that are not in it.
@@ -591,7 +623,7 @@ async function linkNodeModules(siteDir: string): Promise<void> {
     // missing
   }
   try {
-    await symlink(workspaceNodeModules, dest, "dir");
+    await linkDirectory(workspaceNodeModules, dest);
   } catch {
     // already linked
   }
