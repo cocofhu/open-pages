@@ -8,6 +8,7 @@ import {
 } from "@heroicons/react/24/outline";
 import type { AuthUser } from "../lib/api";
 import { isTauri } from "../lib/platform";
+import { AccountMenu } from "./AccountMenu";
 import { GitHubMark } from "./GitHubMark";
 
 export type EditorMode = "wysiwyg" | "source";
@@ -92,12 +93,7 @@ export function TopBar({
           {previewing ? "生成中…" : "预览"}
         </button>
         {user?.login ? (
-          <button type="button" className="ghost account" data-testid="btn-logout" onClick={onLogout} title={user.login}>
-            {user.avatarUrl && <img className="avatar" src={user.avatarUrl} alt="" />}
-            <span className="login" data-testid="user-login">
-              {user.login}
-            </span>
-          </button>
+          <AccountMenu user={{ ...user, login: user.login }} onLogout={onLogout} />
         ) : (
           <button
             type="button"
