@@ -66,12 +66,21 @@ fn file_store_delete(account: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Writing to the keychain is not proof that reading it back will work. An
+/// ad-hoc signed bundle has no stable keychain identity, so macOS may store the
+/// item and then deny (or prompt for) the read. Dropping the file copy on a bare
+/// write therefore stranded the token: the session read kept working while the
+/// token came back empty, and every call died as "Not signed in".
 fn store_secret(account: &str, value: &str) -> Result<(), String> {
     if let Ok(entry) = keyring::Entry::new(SERVICE, account) {
-        if entry.set_password(value).is_ok() {
+        let readable = entry.set_password(value).is_ok()
+            && entry.get_password().is_ok_and(|stored| stored == value);
+        if readable {
             let _ = file_store_delete(account);
             return Ok(());
         }
+        // A half-written entry would otherwise shadow the file copy on every read.
+        let _ = entry.delete_credential();
     }
     file_store_set(account, value)
 }
@@ -79,10 +88,12 @@ fn store_secret(account: &str, value: &str) -> Result<(), String> {
 fn read_secret(account: &str) -> Option<String> {
     if let Ok(entry) = keyring::Entry::new(SERVICE, account) {
         if let Ok(value) = entry.get_password() {
-            return Some(value);
+            if !value.is_empty() {
+                return Some(value);
+            }
         }
     }
-    file_store_get(account)
+    file_store_get(account).filter(|value| !value.is_empty())
 }
 
 fn delete_secret(account: &str) -> Result<(), String> {
@@ -113,12 +124,22 @@ pub fn github_enabled() -> bool {
     !client_id().is_empty()
 }
 
+pub const SIGNED_OUT: &str = "GitHub 登录信息读不出来了，请重新登录。";
+
 pub fn stored_token() -> Option<String> {
     read_secret(TOKEN_ACCOUNT)
 }
 
+pub fn require_token() -> Result<String, String> {
+    stored_token().ok_or_else(|| SIGNED_OUT.to_string())
+}
+
 pub fn stored_session() -> GitHubSession {
-    let stored = read_secret(SESSION_ACCOUNT)
+    // A session whose token cannot be read back is not a session. Reporting it
+    // as signed in is what left the publish page claiming "已连接" while every
+    // call behind it answered 401.
+    let stored = stored_token()
+        .and_then(|_| read_secret(SESSION_ACCOUNT))
         .and_then(|raw| serde_json::from_str::<GitHubSession>(&raw).ok());
     GitHubSession {
         login: stored.as_ref().and_then(|s| s.login.clone()),

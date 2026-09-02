@@ -405,13 +405,27 @@ fn runtime_failure_detail(error: impl std::fmt::Display) -> String {
     }
 }
 
+enum ControlError {
+    /// The runtime answered, it just refused the credentials.
+    Auth(String),
+    Other(String),
+}
+
+impl ControlError {
+    fn message(self) -> String {
+        match self {
+            ControlError::Auth(message) | ControlError::Other(message) => message,
+        }
+    }
+}
+
 async fn send_control(
     method: reqwest::Method,
     path: &str,
     body: Option<Value>,
-) -> Result<Value, String> {
+) -> Result<Value, ControlError> {
     let token = github_auth::stored_token();
-    let client = control_client()?;
+    let client = control_client().map_err(ControlError::Other)?;
     let mut req = client.request(method, format!("{}{path}", control_origin()));
     if let Some(token) = token {
         req = req.bearer_auth(token);
@@ -420,10 +434,10 @@ async fn send_control(
         req = req.json(&body);
     }
     let response = req.send().await.map_err(|error| {
-        runtime_failure_detail(format!(
+        ControlError::Other(runtime_failure_detail(format!(
             "无法连接本地生成服务 {}（{error}）",
             control_origin()
-        ))
+        )))
     })?;
     let status = response.status();
     let value = response.json::<Value>().await.unwrap_or(Value::Null);
@@ -432,7 +446,10 @@ async fn send_control(
             .get("error")
             .and_then(Value::as_str)
             .unwrap_or(status.as_str());
-        return Err(error.to_string());
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(ControlError::Auth(github_auth::SIGNED_OUT.to_string()));
+        }
+        return Err(ControlError::Other(error.to_string()));
     }
     Ok(value)
 }
@@ -445,12 +462,15 @@ async fn control_request(
     start_runtime().map_err(runtime_failure_detail)?;
     match send_control(method.clone(), path, body.clone()).await {
         Ok(value) => Ok(value),
-        Err(first) => {
+        // Bouncing the runtime cannot mint a token, and retrying only turned a
+        // plain 401 into "Not signed in retried: Not signed in".
+        Err(ControlError::Auth(message)) => Err(message),
+        Err(ControlError::Other(first)) => {
             stop_runtime();
             start_runtime().map_err(runtime_failure_detail)?;
             send_control(method, path, body)
                 .await
-                .map_err(|retry| format!("{first}\nretried: {retry}"))
+                .map_err(|retry| format!("{first}\nretried: {}", retry.message()))
         }
     }
 }
@@ -511,11 +531,11 @@ async fn preview_site(payload: Value) -> Result<Value, String> {
 
 #[tauri::command]
 async fn publish_site(payload: Value) -> Result<Value, String> {
-    if github_auth::stored_token().is_none() {
-        return Err("Not signed in".into());
-    }
+    github_auth::require_token()?;
     let session = github_auth::stored_session();
-    let login = session.login.ok_or_else(|| "Not signed in".to_string())?;
+    let login = session
+        .login
+        .ok_or_else(|| github_auth::SIGNED_OUT.to_string())?;
     let mut body = payload;
     if let Some(obj) = body.as_object_mut() {
         obj.insert("owner".into(), Value::String(login));
@@ -525,11 +545,13 @@ async fn publish_site(payload: Value) -> Result<Value, String> {
 
 #[tauri::command]
 async fn list_repos() -> Result<Value, String> {
+    github_auth::require_token()?;
     control_request(reqwest::Method::GET, "/repos", None).await
 }
 
 #[tauri::command]
 async fn create_repo(name: String) -> Result<Value, String> {
+    github_auth::require_token()?;
     control_request(
         reqwest::Method::POST,
         "/repos",
@@ -540,6 +562,7 @@ async fn create_repo(name: String) -> Result<Value, String> {
 
 #[tauri::command]
 async fn check_repo_publish(owner: String, repo: String, site_id: String) -> Result<Value, String> {
+    github_auth::require_token()?;
     control_request(
         reqwest::Method::GET,
         &format!("/repos/{owner}/{repo}/publish-check?siteId={site_id}"),
