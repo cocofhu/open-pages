@@ -33,6 +33,7 @@ async function main() {
   await useCompiledWorkspaceEntries(join(bundle, "node_modules/@open-pages"));
   await copyLinkedPackages(join(bundle, "node_modules"));
   await assertRuntimeImports(bundle);
+  await assertThemesResolvable(bundle);
   console.log(`desktop runtime bundle prepared at ${bundle}`);
 }
 
@@ -143,6 +144,18 @@ async function visit(dir, onPath) {
 async function assertRuntimeImports(bundleDir) {
   execSync(
     `node --input-type=module -e "await import('@open-pages/publish'); await import('@open-pages/github'); await import('@open-pages/hexo-runner'); await import('@open-pages/shared'); console.log('runtime imports ok')"`,
+    { cwd: bundleDir, stdio: "inherit" },
+  );
+}
+
+/**
+ * A theme the runner cannot find here is a theme the installed app cannot
+ * render, and nothing in the workspace test suite can see that: the checkout
+ * resolves themes through links the bundle does not have.
+ */
+async function assertThemesResolvable(bundleDir) {
+  execSync(
+    `node --input-type=module -e "const { missingThemePackages } = await import('@open-pages/hexo-runner'); const missing = await missingThemePackages(); if (missing.length) throw new Error('theme packages unreachable from the bundle: ' + missing.join(', ')); console.log('themes resolvable ok')"`,
     { cwd: bundleDir, stdio: "inherit" },
   );
 }

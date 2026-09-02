@@ -130,7 +130,7 @@ button {
 
 .shell {
   display: grid;
-  grid-template-columns: 268px 1fr;
+  grid-template-columns: var(--sidebar-width, 268px) minmax(0, 1fr);
   /* An auto row would size to the editor's max-content and drag the sidebar
      past the viewport, so the footer could only be reached by scrolling. */
   grid-template-rows: minmax(0, 1fr);
@@ -143,6 +143,7 @@ button {
 }
 
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -151,6 +152,39 @@ button {
   border-right: 1px solid var(--line);
   overflow: hidden;
   padding: 18px 12px 12px;
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background 0.14s ease;
+}
+
+.sidebar-resize-handle:hover::after,
+.resizing-sidebar .sidebar-resize-handle::after {
+  background: var(--accent);
+}
+
+.resizing-sidebar,
+.resizing-sidebar * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .sidebar.hidden {
@@ -521,7 +555,7 @@ li + li > .outline-item.level-1 {
   /* Holds the bar down even if the outline above ever stops filling the gap. */
   margin-top: auto;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 6px;
   padding: 10px 4px 2px;
@@ -545,14 +579,6 @@ li + li > .outline-item.level-1 {
 .sidebar-foot .ghost:hover {
   background: #efe6d8;
   color: var(--ink);
-}
-
-.sidebar-foot .icon-btn-plain {
-  /* Without this the inline svg sits on the text baseline and the button ends up
-     taller than the two pills beside it. */
-  display: inline-flex;
-  align-items: center;
-  padding: var(--control-pad-y);
 }
 
 .sidebar-backdrop {
@@ -720,6 +746,19 @@ li + li > .outline-item.level-1 {
 
 .crepe-host .milkdown .milkdown-code-block .cm-editor {
   color-scheme: light;
+}
+
+/* CodeMirror defaults to generic monospace, which reads differently from the
+   IBM Plex Mono the source preview and inline code use. */
+.crepe-host .milkdown .milkdown-code-block .cm-scroller {
+  font-family: var(--mono);
+}
+
+/* The bundled highlight theme is built for a dark canvas, so anything it does
+   not tokenise inherits a pale grey that sits at ~1.9:1 on this light block.
+   Tokens keep their own colour; only the untokenised fallback changes. */
+.crepe-host .milkdown .milkdown-code-block .cm-content {
+  color: var(--ink);
 }
 
 .crepe-host .milkdown .milkdown-code-block .cm-gutters,
@@ -905,10 +944,12 @@ li + li > .outline-item.level-1 {
 }
 
 .source-preview pre {
-  padding: 14px 16px;
+  /* Mirrors the writing canvas code block, so switching 写作 / 源码 does not
+     swap a light block for a dark one. */
+  padding: 10px 16px 16px;
   border-radius: 12px;
-  background: #1c1915;
-  color: #fff7ef;
+  background: #f7f7f7;
+  color: var(--ink);
   overflow: auto;
 }
 

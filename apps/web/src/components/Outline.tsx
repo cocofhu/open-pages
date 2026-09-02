@@ -1,21 +1,71 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDoubleLeftIcon, Cog6ToothIcon, FolderIcon } from "@heroicons/react/24/outline";
+import { Cog6ToothIcon, FolderIcon } from "@heroicons/react/24/outline";
 import { collectHeadings, type OutlineHeading } from "../lib/outline";
 
 interface OutlineProps {
   open: boolean;
+  width: number;
   siteTitle: string;
   markdown: string;
   onJump: (heading: OutlineHeading) => void;
   onFiles: () => void;
   onSettings: () => void;
+  onResize: (width: number) => void;
   onHide: () => void;
 }
 
-export function Outline({ open, siteTitle, markdown, onJump, onFiles, onSettings, onHide }: OutlineProps) {
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 480;
+const HIDE_THRESHOLD = 120;
+
+export function Outline({
+  open,
+  width,
+  siteTitle,
+  markdown,
+  onJump,
+  onFiles,
+  onSettings,
+  onResize,
+  onHide,
+}: OutlineProps) {
   const headings = useMemo(() => collectHeadings(markdown), [markdown]);
   const active = useActiveHeading(headings.length);
   const base = headings.reduce((min, heading) => Math.min(min, heading.level), 6);
+
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startingWidth = width;
+    document.body.classList.add("resizing-sidebar");
+
+    const move = (next: PointerEvent) => {
+      onResize(Math.min(MAX_WIDTH, Math.max(0, next.clientX)));
+    };
+    const finish = (next: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      document.body.classList.remove("resizing-sidebar");
+      if (next.clientX <= HIDE_THRESHOLD) {
+        onResize(startingWidth);
+        onHide();
+      } else {
+        onResize(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next.clientX)));
+      }
+    };
+    const cancel = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      document.body.classList.remove("resizing-sidebar");
+      onResize(startingWidth);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
+  };
 
   return (
     <aside className={open ? "sidebar" : "sidebar hidden"} data-testid="sidebar">
@@ -59,11 +109,29 @@ export function Outline({ open, siteTitle, markdown, onJump, onFiles, onSettings
           <Cog6ToothIcon className="ui-icon" aria-hidden="true" />
           设置
         </button>
-        <button type="button" className="ghost icon-btn-plain" data-testid="btn-sidebar" title="收起" onClick={onHide}>
-          <ChevronDoubleLeftIcon className="ui-icon" aria-hidden="true" />
-          <span className="sr-only">收起</span>
-        </button>
       </footer>
+      <div
+        className="sidebar-resize-handle"
+        data-testid="sidebar-resize-handle"
+        role="separator"
+        tabIndex={0}
+        aria-label="调整侧栏宽度；拖到最左侧可隐藏"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        aria-valuenow={Math.round(width)}
+        onPointerDown={startResize}
+        onKeyDown={(event) => {
+          if (event.key === "Home") {
+            event.preventDefault();
+            onHide();
+          } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            event.preventDefault();
+            const delta = event.key === "ArrowLeft" ? -16 : 16;
+            onResize(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width + delta)));
+          }
+        }}
+      />
     </aside>
   );
 }

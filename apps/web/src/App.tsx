@@ -72,6 +72,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => !window.matchMedia("(max-width: 860px)").matches,
   );
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [online, setOnline] = useState(navigator.onLine);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
@@ -653,7 +654,11 @@ export function App() {
   }
 
   return (
-    <div className={sidebarOpen ? "shell" : "shell sidebar-collapsed"} data-testid="app-shell">
+    <div
+      className={sidebarOpen ? "shell" : "shell sidebar-collapsed"}
+      data-testid="app-shell"
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
+    >
       {sidebarOpen && (
         <button
           type="button"
@@ -665,6 +670,7 @@ export function App() {
       )}
       <Outline
         open={sidebarOpen}
+        width={sidebarWidth}
         siteTitle={config.title}
         markdown={editable ? body : ""}
         onJump={(heading) => {
@@ -673,6 +679,10 @@ export function App() {
         }}
         onFiles={() => go("files")}
         onSettings={() => go("settings")}
+        onResize={(width) => {
+          setSidebarWidth(width);
+          if (width >= 200) localStorage.setItem("open-pages-sidebar-width", String(width));
+        }}
         onHide={() => setSidebarOpen(false)}
       />
       <div className="main">
@@ -889,6 +899,11 @@ interface PreviewSession {
   hint: string;
   url: string | null;
   error: string | null;
+}
+
+function readSidebarWidth(): number {
+  const stored = Number.parseFloat(localStorage.getItem("open-pages-sidebar-width") ?? "");
+  return Number.isFinite(stored) ? Math.min(480, Math.max(200, stored)) : 268;
 }
 
 function isSettingsRoute(route: AppRoute) {

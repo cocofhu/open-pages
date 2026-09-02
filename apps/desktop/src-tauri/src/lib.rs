@@ -405,16 +405,26 @@ fn runtime_failure_detail(error: impl std::fmt::Display) -> String {
     }
 }
 
-enum ControlError {
-    /// The runtime answered, it just refused the credentials.
-    Auth(String),
-    Other(String),
+struct ControlError {
+    message: String,
+    /// Only a runtime we could not reach is worth restarting for. Once it has
+    /// replied, a restart produces the same answer and the caller ends up
+    /// reading it twice, as in "Not signed in retried: Not signed in".
+    retryable: bool,
 }
 
 impl ControlError {
-    fn message(self) -> String {
-        match self {
-            ControlError::Auth(message) | ControlError::Other(message) => message,
+    fn answered(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: false,
+        }
+    }
+
+    fn unreachable(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: true,
         }
     }
 }
@@ -425,7 +435,7 @@ async fn send_control(
     body: Option<Value>,
 ) -> Result<Value, ControlError> {
     let token = github_auth::stored_token();
-    let client = control_client().map_err(ControlError::Other)?;
+    let client = control_client().map_err(|error| ControlError::answered(error))?;
     let mut req = client.request(method, format!("{}{path}", control_origin()));
     if let Some(token) = token {
         req = req.bearer_auth(token);
@@ -434,7 +444,7 @@ async fn send_control(
         req = req.json(&body);
     }
     let response = req.send().await.map_err(|error| {
-        ControlError::Other(runtime_failure_detail(format!(
+        ControlError::unreachable(runtime_failure_detail(format!(
             "无法连接本地生成服务 {}（{error}）",
             control_origin()
         )))
@@ -442,14 +452,14 @@ async fn send_control(
     let status = response.status();
     let value = response.json::<Value>().await.unwrap_or(Value::Null);
     if !status.is_success() {
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(ControlError::answered(github_auth::SIGNED_OUT));
+        }
         let error = value
             .get("error")
             .and_then(Value::as_str)
             .unwrap_or(status.as_str());
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ControlError::Auth(github_auth::SIGNED_OUT.to_string()));
-        }
-        return Err(ControlError::Other(error.to_string()));
+        return Err(ControlError::answered(error));
     }
     Ok(value)
 }
@@ -462,15 +472,13 @@ async fn control_request(
     start_runtime().map_err(runtime_failure_detail)?;
     match send_control(method.clone(), path, body.clone()).await {
         Ok(value) => Ok(value),
-        // Bouncing the runtime cannot mint a token, and retrying only turned a
-        // plain 401 into "Not signed in retried: Not signed in".
-        Err(ControlError::Auth(message)) => Err(message),
-        Err(ControlError::Other(first)) => {
+        Err(first) if !first.retryable => Err(first.message),
+        Err(first) => {
             stop_runtime();
             start_runtime().map_err(runtime_failure_detail)?;
             send_control(method, path, body)
                 .await
-                .map_err(|retry| format!("{first}\nretried: {}", retry.message()))
+                .map_err(|retry| format!("{}\nretried: {}", first.message, retry.message))
         }
     }
 }

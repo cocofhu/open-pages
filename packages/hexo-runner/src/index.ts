@@ -45,6 +45,8 @@ const MAX_FILES = 200;
 const MAX_PUBLIC_FILES = 500;
 const MAX_PUBLIC_BYTES = 20 * 1024 * 1024;
 const THEME_COPY_VERSION = 3;
+/** Hexo's own default theme, and the one a missing package falls back to. */
+const FALLBACK_THEME: BuiltinThemeId = "landscape";
 const BUILDS_DIR = ".builds";
 
 function assertInside(root: string, target: string): string {
@@ -411,21 +413,16 @@ async function walk(
 async function ensureTheme(siteDir: string, theme: ThemeId, sourceOverride?: string): Promise<void> {
   const dest = join(siteDir, "themes", theme);
   const marker = join(dest, ".open-pages-theme");
-  const markerValue = `${theme}:${THEME_COPY_VERSION}:${sourceOverride ?? "builtin"}`;
+  // Resolved before the marker check because the marker records which source
+  // the copy came from: a site rendered with the fallback has to be rebuilt
+  // once the real package shows up again.
+  const { dir: src, content, origin } = await themePackageSource(theme, sourceOverride);
+  const markerValue = `${theme}:${THEME_COPY_VERSION}:${origin}`;
   try {
     const existing = await readFile(marker, "utf8");
     if (existing.trim() === markerValue) return;
   } catch {
     // missing or incomplete copy
-  }
-  const src = sourceOverride ? resolve(sourceOverride) : resolveThemePackage(theme);
-  try {
-    if (!(await stat(src)).isDirectory()) throw new Error("not a directory");
-  } catch {
-    const builtin = builtinTheme(theme);
-    throw new Error(
-      `Theme package not installed: ${builtin ? THEME_META[builtin].packageName : theme}`,
-    );
   }
 
   const staging = join(siteDir, "themes", `.${theme}.tmp-${process.pid}-${Date.now()}`);
@@ -448,7 +445,9 @@ async function ensureTheme(siteDir: string, theme: ThemeId, sourceOverride?: str
       await rm(join(staging, "node_modules"), { recursive: true, force: true });
       await symlink(dirname(src), join(staging, "node_modules"), "dir");
     }
-    await patchThemeCompatibility(staging, theme);
+    // Keyed to the files actually copied: patching a fallback copy as if it
+    // were the requested theme would look for scripts that are not in it.
+    await patchThemeCompatibility(staging, content);
     await writeFile(join(staging, ".open-pages-theme"), `${markerValue}\n`);
     await rm(dest, { recursive: true, force: true });
     try {
@@ -487,15 +486,100 @@ async function patchThemeCompatibility(themeDir: string, theme: ThemeId): Promis
   );
 }
 
-function resolveThemePackage(theme: ThemeId): string {
+interface ThemeSource {
+  /** Directory the theme files are copied from. */
+  dir: string;
+  /** Theme the copied files belong to, which is not `theme` after a fallback. */
+  content: ThemeId;
+  /** Recorded in the copy marker so a fallback is never mistaken for the real thing. */
+  origin: string;
+}
+
+/**
+ * A theme we cannot find used to fail the whole render, which turns one broken
+ * package into an editor that shows nothing at all. Fall back to the same theme
+ * `readThemeId` defaults to instead, keeping the destination directory named
+ * after the requested theme so the site config still points at something real.
+ */
+async function themePackageSource(
+  theme: ThemeId,
+  sourceOverride?: string,
+): Promise<ThemeSource> {
+  if (sourceOverride) {
+    // A path the user supplied: silently rendering something else would hide
+    // their mistake, so this still fails.
+    const dir = resolve(sourceOverride);
+    if (!(await isDirectory(dir))) throw new Error(`Theme package not installed: ${theme}`);
+    // The path stays in the marker so pointing at a different source re-copies.
+    return { dir, content: theme, origin: sourceOverride };
+  }
+
+  const dir = await resolveThemePackage(theme).catch(() => null);
+  if (dir && (await isDirectory(dir))) return { dir, content: theme, origin: "builtin" };
+
+  const name = themePackageName(theme);
+  if (theme !== FALLBACK_THEME) {
+    const fallback = await resolveThemePackage(FALLBACK_THEME).catch(() => null);
+    if (fallback && (await isDirectory(fallback))) {
+      console.warn(
+        `[open-pages] theme package ${name} is not installed; rendering with ${FALLBACK_THEME} instead`,
+      );
+      return { dir: fallback, content: FALLBACK_THEME, origin: `fallback:${FALLBACK_THEME}` };
+    }
+  }
+  throw new Error(`Theme package not installed: ${name}`);
+}
+
+function themePackageName(theme: ThemeId): string {
+  const builtin = builtinTheme(theme);
+  return builtin ? THEME_META[builtin].packageName : theme;
+}
+
+/**
+ * Some themes ship no package.json (hexo-theme-white is a bare GitHub tarball),
+ * so require.resolve cannot find them and only the directory lookup works.
+ * Falling back to the runner-local node_modules alone was enough in the pnpm
+ * workspace, where that directory holds a link to every dependency, but the
+ * packaged desktop runtime is a hoisted tree with no such directory — the theme
+ * sat in the bundle root the whole time and still reported "not installed".
+ */
+async function resolveThemePackage(theme: ThemeId): Promise<string> {
   const builtin = builtinTheme(theme);
   if (!builtin) throw new Error(`Theme package not installed: ${theme}`);
   const pkg = THEME_META[builtin].packageName;
   try {
     return dirname(require.resolve(`${pkg}/package.json`, { paths: [runnerRoot] }));
   } catch {
+    // Ordered so a workspace checkout keeps preferring its own copy.
+    for (const root of [runnerNodeModules, hexoNodeModules, workspaceNodeModules]) {
+      const candidate = join(root, pkg);
+      if (await isDirectory(candidate)) return candidate;
+    }
     return join(runnerNodeModules, pkg);
   }
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Packaging guard, used by the desktop bundle step. The bundle has a different
+ * node_modules shape than the workspace, so a theme can be reachable here and
+ * missing there — which is how hexo-theme-white shipped broken while every test
+ * in the workspace passed.
+ */
+export async function missingThemePackages(): Promise<string[]> {
+  const missing: string[] = [];
+  for (const theme of Object.keys(THEME_META) as BuiltinThemeId[]) {
+    const path = await resolveThemePackage(theme).catch(() => null);
+    if (!path || !(await isDirectory(path))) missing.push(THEME_META[theme].packageName);
+  }
+  return missing;
 }
 
 async function linkNodeModules(siteDir: string): Promise<void> {
@@ -721,7 +805,7 @@ async function readThemeId(siteDir: string): Promise<ThemeId> {
   } catch {
     // default
   }
-  return "landscape";
+  return FALLBACK_THEME;
 }
 
 async function assertGeneratedIndex(publicDir: string): Promise<void> {

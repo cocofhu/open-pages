@@ -106,6 +106,38 @@ test.describe("Open Pages editor", () => {
     await expect(page.getByTestId("btn-settings")).toBeInViewport();
   });
 
+  test("resizes the sidebar and hides it at the left edge", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 700 });
+    await boot(page);
+    await expect(page.locator(".sidebar-foot").getByRole("button")).toHaveCount(2);
+
+    const handle = page.getByTestId("sidebar-resize-handle");
+    const edge = await handle.boundingBox();
+    expect(edge).not.toBeNull();
+    await page.mouse.move(edge!.x + edge!.width / 2, edge!.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(360, edge!.y + 100);
+    await page.mouse.up();
+    await expect
+      .poll(() => page.getByTestId("sidebar").evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+      .toBe(360);
+
+    const resizedEdge = await handle.boundingBox();
+    expect(resizedEdge).not.toBeNull();
+    await page.mouse.move(resizedEdge!.x + resizedEdge!.width / 2, resizedEdge!.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(40, resizedEdge!.y + 100);
+    await page.mouse.up();
+    await expect(page.getByTestId("sidebar")).toBeHidden();
+
+    // The top bar remains the recovery path after an edge drag hides the sidebar.
+    await page.getByTestId("btn-sidebar").click();
+    await expect(page.getByTestId("sidebar")).toBeVisible();
+    await expect
+      .poll(() => page.getByTestId("sidebar").evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+      .toBe(360);
+  });
+
   test("manages files on a dedicated page", async ({ page }) => {
     await boot(page);
     await page.getByTestId("btn-files").click();
