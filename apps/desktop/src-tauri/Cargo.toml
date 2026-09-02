@@ -1,6 +1,6 @@
 [package]
 name = "open-pages-desktop"
-version = "0.1.15"
+version = "0.1.16"
 description = "Open Pages desktop client"
 authors = ["Open Pages"]
 edition = "2021"

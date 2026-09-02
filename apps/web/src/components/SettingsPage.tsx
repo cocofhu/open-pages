@@ -2,7 +2,6 @@ import {
   ArrowLeftIcon,
   ArrowPathIcon,
   CheckIcon,
-  FolderOpenIcon,
   GlobeAltIcon,
   PlusIcon,
   PuzzlePieceIcon,
@@ -21,9 +20,7 @@ import {
 } from "@open-pages/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { InstallStep } from "../lib/api";
-import { isTauri, platform } from "../lib/platform";
 import { LANGUAGE_OPTIONS, PERMALINK_PRESETS, timezoneOptions } from "../lib/site-options";
-import { siteId } from "../lib/vfs";
 import { ComboSelect } from "./ComboSelect";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ThemeSettingsForm } from "./ThemeFields";
@@ -89,7 +86,6 @@ interface SettingsPageProps {
   resolveAvatarUrl: (url: string) => Promise<string> | string;
   onRetry: () => void;
   onClose: () => void;
-  sourcePath?: string | null;
 }
 
 export type SettingsTab = "site" | "theme" | "plugin";
@@ -119,7 +115,6 @@ export function SettingsPage({
   resolveAvatarUrl,
   onRetry,
   onClose,
-  sourcePath,
 }: SettingsPageProps) {
   const [draftConfig, setDraftConfig] = useState(config);
   const [draftTheme, setDraftTheme] = useState(themeSettings);
@@ -140,8 +135,6 @@ export function SettingsPage({
   const [pluginValues, setPluginValues] = useState<ThemeSettings>({});
   const [pluginYaml, setPluginYaml] = useState("");
   const [pluginConfigBusy, setPluginConfigBusy] = useState(false);
-  const [openDirError, setOpenDirError] = useState("");
-  const [openDirBusy, setOpenDirBusy] = useState(false);
   const previewTimer = useRef<number | undefined>(undefined);
   const themeDraftsRef = useRef(themeDrafts);
   themeDraftsRef.current = themeDrafts;
@@ -171,21 +164,6 @@ export function SettingsPage({
   const schedulePreview = (next: SettingsDraft) => {
     if (previewTimer.current) window.clearTimeout(previewTimer.current);
     previewTimer.current = window.setTimeout(() => onPreview(next), 650);
-  };
-
-  const openSiteFolder = async () => {
-    setOpenDirError("");
-    setOpenDirBusy(true);
-    const normalized = sourcePath?.replaceAll("\\", "/") ?? "";
-    const relPath =
-      normalized.startsWith("source/") && normalized.endsWith(".md") ? normalized : "source/_posts";
-    try {
-      await platform.openSiteDir(siteId(), relPath);
-    } catch (error) {
-      setOpenDirError(error instanceof Error ? error.message : "打开文件夹失败");
-    } finally {
-      setOpenDirBusy(false);
-    }
   };
 
   const setSite = <K extends keyof SiteConfig>(key: K, value: SiteConfig[K]) => {
@@ -395,21 +373,6 @@ export function SettingsPage({
           {tab === "site" ? (
             <div className="settings-pane-scroll">
               <p className="hint">改完后点保存，站点信息和主题会一起写入。右侧可以先预览未保存的改动。</p>
-              {isTauri() ? (
-                <>
-                  <button
-                    type="button"
-                    className="ghost icon-label"
-                    data-testid="open-site-dir"
-                    disabled={openDirBusy}
-                    onClick={() => void openSiteFolder()}
-                  >
-                    <FolderOpenIcon className="ui-icon" aria-hidden="true" />
-                    {openDirBusy ? "打开中…" : "打开文件夹位置"}
-                  </button>
-                  {openDirError ? <p className="hint error-text">{openDirError}</p> : null}
-                </>
-              ) : null}
               <div className="grid">
                 <Field testId="cfg-title" label="标题" value={draftConfig.title} onChange={(value) => setSite("title", value)} />
                 <Field testId="cfg-subtitle" label="副标题" value={draftConfig.subtitle} onChange={(value) => setSite("subtitle", value)} />
