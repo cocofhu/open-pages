@@ -202,14 +202,35 @@ async function handlePreview(req: IncomingMessage, res: ServerResponse): Promise
   res.end(file.body);
 }
 
-createServer((req, res) => {
-  void handleControl(req, res);
-}).listen(controlPort, "127.0.0.1", () => {
-  console.log(`open-pages desktop control listening on http://127.0.0.1:${controlPort}`);
-});
+function listen(port: number, handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer(handler);
+    const fail = (error: Error) => {
+      server.close();
+      reject(error);
+    };
+    server.once("error", fail);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", fail);
+      server.on("error", (error) => {
+        console.error(`open-pages desktop server error on ${port}:`, error);
+      });
+      const addr = server.address();
+      resolve(typeof addr === "object" && addr ? addr.port : port);
+    });
+  });
+}
 
-createServer((req, res) => {
-  void handlePreview(req, res);
-}).listen(previewPort, "127.0.0.1", () => {
-  console.log(`open-pages desktop preview listening on http://127.0.0.1:${previewPort}`);
-});
+try {
+  const boundControl = await listen(controlPort, (req, res) => {
+    void handleControl(req, res);
+  });
+  const boundPreview = await listen(previewPort, (req, res) => {
+    void handlePreview(req, res);
+  });
+  console.log(`open-pages desktop control listening on http://127.0.0.1:${boundControl}`);
+  console.log(`open-pages desktop preview listening on http://127.0.0.1:${boundPreview}`);
+} catch (error) {
+  console.error("open-pages desktop runtime failed to listen", error);
+  process.exit(1);
+}

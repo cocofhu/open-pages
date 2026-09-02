@@ -1,5 +1,7 @@
 mod github_auth;
 
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
@@ -11,11 +13,10 @@ use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
-const CONTROL_ORIGIN: &str = "http://127.0.0.1:3848";
-
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static RUNTIME: Mutex<Option<Child>> = Mutex::new(None);
 static CONTROL_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static CONTROL_PORT: Mutex<u16> = Mutex::new(3848);
 
 /// Windows gives every child process its own console, which flashes a black
 /// window over the app each time we probe for Node or open a browser.
@@ -45,6 +46,69 @@ fn control_client() -> Result<&'static reqwest::Client, String> {
     CONTROL_CLIENT
         .get()
         .ok_or_else(|| "failed to create control client".to_string())
+}
+
+fn control_port() -> u16 {
+    CONTROL_PORT.lock().map(|port| *port).unwrap_or(3848)
+}
+
+fn set_control_port(port: u16) {
+    if let Ok(mut slot) = CONTROL_PORT.lock() {
+        *slot = port;
+    }
+}
+
+fn control_origin() -> String {
+    format!("http://127.0.0.1:{}", control_port())
+}
+
+fn reserve_port(preferred: u16) -> u16 {
+    let bind = |port: u16| TcpListener::bind(("127.0.0.1", port));
+    let listener = bind(preferred).or_else(|_| bind(0));
+    match listener.and_then(|bound| bound.local_addr().map(|addr| (bound, addr.port()))) {
+        Ok((bound, port)) => {
+            drop(bound);
+            port
+        }
+        Err(_) => preferred,
+    }
+}
+
+fn runtime_healthy(port: u16) -> bool {
+    let Ok(addr) = format!("127.0.0.1:{port}").parse() else {
+        return false;
+    };
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(250)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(400)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(400)));
+    if stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut buf = [0u8; 512];
+    let Ok(n) = stream.read(&mut buf) else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&buf[..n]);
+    text.contains("\"ok\"") && text.contains("200")
+}
+
+fn kill_child(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let pid = child.id().to_string();
+        let _ = hidden_command("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[derive(Serialize)]
@@ -98,11 +162,12 @@ fn search_dirs(app: &AppHandle) -> Vec<PathBuf> {
 fn bundled_runtime_dir(app: &AppHandle) -> Result<PathBuf, String> {
     for dir in search_dirs(app) {
         let candidate = dir.join("runtime-bundle");
-        if candidate.join("runtime/host.ts").exists() {
+        if candidate.join("runtime/host.js").exists() || candidate.join("runtime/host.ts").exists()
+        {
             return Ok(candidate);
         }
     }
-    Err("desktop runtime bundle missing next to the app (runtime-bundle/runtime/host.ts)".into())
+    Err("desktop runtime bundle missing next to the app (runtime-bundle/runtime/host.js)".into())
 }
 
 fn node_sidecar_name() -> &'static str {
@@ -203,18 +268,12 @@ fn runtime_log_tail(path: &Path) -> Option<String> {
     Some(format!("{tail}\n(full log: {})", path.display()))
 }
 
-fn spawn_runtime(mut child: Child, log_path: Option<PathBuf>) -> Result<(), String> {
-    for _ in 0..50 {
-        if std::net::TcpStream::connect_timeout(
-            &"127.0.0.1:3848"
-                .parse::<std::net::SocketAddr>()
-                .map_err(|error| error.to_string())?,
-            Duration::from_millis(150),
-        )
-        .is_ok()
-        {
+fn spawn_runtime(mut child: Child, log_path: Option<PathBuf>, port: u16) -> Result<(), String> {
+    for _ in 0..150 {
+        if runtime_healthy(port) {
             let mut slot = RUNTIME.lock().map_err(|error| error.to_string())?;
             *slot = Some(child);
+            set_control_port(port);
             return Ok(());
         }
         if let Ok(Some(status)) = child.try_wait() {
@@ -228,8 +287,12 @@ fn spawn_runtime(mut child: Child, log_path: Option<PathBuf>) -> Result<(), Stri
         }
         std::thread::sleep(Duration::from_millis(200));
     }
-    let _ = child.kill();
-    Err("desktop runtime did not become ready".into())
+    kill_child(&mut child);
+    let detail = log_path.as_deref().and_then(runtime_log_tail);
+    Err(match detail {
+        Some(detail) => format!("desktop runtime did not become ready on 127.0.0.1:{port}\n{detail}"),
+        None => format!("desktop runtime did not become ready on 127.0.0.1:{port}"),
+    })
 }
 
 fn start_runtime_dev() -> Result<(), String> {
@@ -248,7 +311,7 @@ fn start_runtime_dev() -> Result<(), String> {
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|error| format!("failed to start desktop runtime: {error}"))?;
-    spawn_runtime(child, None)
+    spawn_runtime(child, None, 3848)
 }
 
 fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
@@ -269,26 +332,39 @@ fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
         },
         None => (Stdio::null(), Stdio::null()),
     };
+    let control = reserve_port(3848);
+    let mut preview = reserve_port(8788);
+    if preview == control {
+        preview = reserve_port(0);
+    }
     let child = hidden_command(node)
         .arg(&script)
         .current_dir(&bundle_dir)
-        .env("OPEN_PAGES_CONTROL_PORT", "3848")
-        .env("OPEN_PAGES_PREVIEW_PORT", "8788")
-        .env("OPEN_PAGES_PREVIEW_ORIGIN", "http://127.0.0.1:8788")
+        .env("OPEN_PAGES_CONTROL_PORT", control.to_string())
+        .env("OPEN_PAGES_PREVIEW_PORT", preview.to_string())
+        .env(
+            "OPEN_PAGES_PREVIEW_ORIGIN",
+            format!("http://127.0.0.1:{preview}"),
+        )
         .env("NODE_ENV", "production")
         .stdout(stdout)
         .stderr(stderr)
         .spawn()
         .map_err(|error| format!("failed to start desktop runtime: {error}"))?;
-    spawn_runtime(child, log_path)
+    spawn_runtime(child, log_path, control)
 }
 
 fn start_runtime() -> Result<(), String> {
     let mut slot = RUNTIME.lock().map_err(|error| error.to_string())?;
     if let Some(child) = slot.as_mut() {
-        if child.try_wait().ok().flatten().is_none() {
+        let still_running = child.try_wait().ok().flatten().is_none();
+        if still_running && runtime_healthy(control_port()) {
             return Ok(());
         }
+        if still_running {
+            kill_child(child);
+        }
+        *slot = None;
     }
     drop(slot);
 
@@ -302,20 +378,31 @@ fn start_runtime() -> Result<(), String> {
 fn stop_runtime() {
     if let Ok(mut slot) = RUNTIME.lock() {
         if let Some(mut child) = slot.take() {
-            let _ = child.kill();
+            kill_child(&mut child);
         }
     }
 }
 
-async fn control_request(
+fn runtime_failure_detail(error: impl std::fmt::Display) -> String {
+    let log = app_handle()
+        .ok()
+        .and_then(runtime_log_path)
+        .as_deref()
+        .and_then(runtime_log_tail);
+    match log {
+        Some(log) => format!("{error}\n{log}"),
+        None => error.to_string(),
+    }
+}
+
+async fn send_control(
     method: reqwest::Method,
     path: &str,
     body: Option<Value>,
 ) -> Result<Value, String> {
-    start_runtime()?;
     let token = github_auth::stored_token();
     let client = control_client()?;
-    let mut req = client.request(method, format!("{CONTROL_ORIGIN}{path}"));
+    let mut req = client.request(method, format!("{}{path}", control_origin()));
     if let Some(token) = token {
         req = req.bearer_auth(token);
     }
@@ -323,9 +410,10 @@ async fn control_request(
         req = req.json(&body);
     }
     let response = req.send().await.map_err(|error| {
-        format!(
-            "无法连接本地生成服务 {CONTROL_ORIGIN}（{error}）。若开启了系统代理或 VPN，请把 127.0.0.1 设为直连。"
-        )
+        runtime_failure_detail(format!(
+            "无法连接本地生成服务 {}（{error}）",
+            control_origin()
+        ))
     })?;
     let status = response.status();
     let value = response.json::<Value>().await.unwrap_or(Value::Null);
@@ -337,6 +425,24 @@ async fn control_request(
         return Err(error.to_string());
     }
     Ok(value)
+}
+
+async fn control_request(
+    method: reqwest::Method,
+    path: &str,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    start_runtime().map_err(runtime_failure_detail)?;
+    match send_control(method.clone(), path, body.clone()).await {
+        Ok(value) => Ok(value),
+        Err(first) => {
+            stop_runtime();
+            start_runtime().map_err(runtime_failure_detail)?;
+            send_control(method, path, body)
+                .await
+                .map_err(|retry| format!("{first}\nretried: {retry}"))
+        }
+    }
 }
 
 fn current_user() -> AuthUser {

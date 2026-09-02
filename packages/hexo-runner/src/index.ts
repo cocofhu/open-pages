@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir, rm, writeFile, readFile, cp, symlink, lstat, readdir, rename, stat } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
@@ -25,6 +25,16 @@ import {
 const require = createRequire(import.meta.url);
 const runnerRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runnerNodeModules = join(runnerRoot, "node_modules");
+const hexoNodeModules = (() => {
+  try {
+    return resolve(dirname(require.resolve("hexo/package.json", { paths: [runnerRoot] })), "..");
+  } catch {
+    return runnerNodeModules;
+  }
+})();
+const nodeModuleSearch = [hexoNodeModules, runnerNodeModules]
+  .filter((value, index, all) => all.indexOf(value) === index)
+  .join(delimiter);
 const generateWorkerPath = fileURLToPath(new URL("./generate-worker.mjs", import.meta.url));
 
 const GENERATE_TIMEOUT_MS = 60_000;
@@ -496,7 +506,7 @@ async function linkNodeModules(siteDir: string): Promise<void> {
     // missing
   }
   try {
-    await symlink(runnerNodeModules, dest, "dir");
+    await symlink(hexoNodeModules, dest, "dir");
   } catch {
     // already linked
   }
@@ -583,7 +593,7 @@ function workerEnv(): NodeJS.ProcessEnv {
   ];
   const env: NodeJS.ProcessEnv = {
     NODE_ENV: process.env.NODE_ENV ?? "production",
-    NODE_PATH: runnerNodeModules,
+    NODE_PATH: nodeModuleSearch,
   };
   for (const key of allow) {
     const value = process.env[key];
@@ -675,8 +685,8 @@ function workerPermissionArgs(
   const readRoots = new Set([
     siteDir,
     dirname(generateWorkerPath),
+    hexoNodeModules,
     runnerNodeModules,
-    resolve(runnerNodeModules, "../../../node_modules"),
     tmpdir(),
   ]);
   for (const path of [themeSource, ...plugins.map((plugin) => plugin.path)]) {
