@@ -202,6 +202,57 @@ fn resolve_node_binary(app: &AppHandle) -> Result<PathBuf, String> {
     Err("Node.js runtime not found next to the app. Reinstall Open Pages 0.1.1 or later.".into())
 }
 
+fn dirs_home() -> PathBuf {
+    let primary = if cfg!(windows) {
+        std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+    } else {
+        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+    };
+    primary
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn is_safe_site_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.is_empty() || bytes.len() > 80 {
+        return false;
+    }
+    let first = bytes[0];
+    if !first.is_ascii_alphanumeric() {
+        return false;
+    }
+    bytes[1..]
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-')
+}
+
+fn normalize_rel_path(value: &str) -> Option<String> {
+    let normalized = value.replace('\\', "/");
+    if normalized.is_empty() || normalized.starts_with('/') || normalized.contains("..") {
+        return None;
+    }
+    if normalized != "source" && !normalized.starts_with("source/") {
+        return None;
+    }
+    Some(normalized)
+}
+
+fn site_rel_path(site_id: &str, rel: &str) -> Result<PathBuf, String> {
+    if !is_safe_site_id(site_id) {
+        return Err("Invalid site id".into());
+    }
+    let normalized = normalize_rel_path(rel).ok_or_else(|| "Invalid path".to_string())?;
+    let mut path = dirs_home().join(".open-pages").join("sites").join(site_id);
+    for part in normalized.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        path.push(part);
+    }
+    Ok(path)
+}
+
 fn open_in_browser(app: &AppHandle, url: &str) -> Result<(), String> {
     if app.opener().open_url(url, None::<&str>).is_ok() {
         return Ok(());
@@ -224,6 +275,32 @@ fn open_in_browser(app: &AppHandle, url: &str) -> Result<(), String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("failed to open browser: {error}"))?;
+    Ok(())
+}
+
+fn open_path_in_file_manager(app: &AppHandle, path: &Path) -> Result<(), String> {
+    let path_str = path.to_string_lossy();
+    if app.opener().open_path(path_str.as_ref(), None::<&str>).is_ok() {
+        return Ok(());
+    }
+    let mut command = if cfg!(target_os = "windows") {
+        let mut cmd = hidden_command("explorer");
+        cmd.arg(path.as_os_str());
+        cmd
+    } else if cfg!(target_os = "macos") {
+        let mut cmd = hidden_command("open");
+        cmd.arg(path.as_os_str());
+        cmd
+    } else {
+        let mut cmd = hidden_command("xdg-open");
+        cmd.arg(path.as_os_str());
+        cmd
+    };
+    command
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("failed to open folder: {error}"))?;
     Ok(())
 }
 
@@ -533,6 +610,22 @@ fn github_get_session() -> AuthUser {
 }
 
 #[tauri::command]
+fn open_site_dir(app: AppHandle, site_id: String, path: Option<String>) -> Result<(), String> {
+    let rel = path.as_deref().unwrap_or("source/_posts");
+    let target = site_rel_path(&site_id, rel)?;
+    let dir = if target.extension().is_some() {
+        target
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| target.clone())
+    } else {
+        target
+    };
+    std::fs::create_dir_all(&dir).map_err(|error| format!("failed to create site dir: {error}"))?;
+    open_path_in_file_manager(&app, &dir)
+}
+
+#[tauri::command]
 async fn preview_site(payload: Value) -> Result<Value, String> {
     control_request(reqwest::Method::POST, "/preview", Some(payload)).await
 }
@@ -594,6 +687,7 @@ pub fn run() {
             github_login,
             github_logout,
             github_get_session,
+            open_site_dir,
             preview_site,
             publish_site,
             list_repos,

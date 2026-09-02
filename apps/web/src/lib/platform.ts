@@ -112,4 +112,9 @@ export const platform = {
     if (isTauri()) throw new Error("桌面版暂不支持安装扩展");
     return api.removeAddon(id);
   },
+
+  async openSiteDir(siteId: string, path?: string): Promise<void> {
+    if (!isTauri()) throw new Error("仅桌面版支持打开本地文件夹");
+    await invoke("open_site_dir", { siteId, path });
+  },
 };

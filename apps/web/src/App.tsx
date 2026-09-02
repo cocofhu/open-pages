@@ -813,6 +813,7 @@ export function App() {
             window.location.hash = hashFor("editor");
             setRoute("editor");
           }}
+          sourcePath={activePath}
         />
       )}
       {route === "files" && (
