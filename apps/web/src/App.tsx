@@ -828,6 +828,11 @@ export function App() {
             setNewDocOpen(true);
           }}
           onDelete={(path) => setPendingDelete(path)}
+          onReveal={(path) => {
+            void platform.openSiteDir(siteId(), path).catch((error) => {
+              setToast({ kind: "error", text: errorMessage(error, "打开文件夹失败") });
+            });
+          }}
           onBack={() => go("editor")}
         />
       )}

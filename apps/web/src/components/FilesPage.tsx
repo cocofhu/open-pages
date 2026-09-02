@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeftIcon, MagnifyingGlassIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, FolderOpenIcon, MagnifyingGlassIcon, PlusIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { fileKind } from "@open-pages/shared";
+import { isTauri } from "../lib/platform";
 import { fileName } from "../lib/vfs";
 import type { DocKind } from "./NewDocDialog";
 import { StudioBar } from "./StudioBar";
@@ -18,6 +19,7 @@ interface FilesPageProps {
   onOpen: (path: string) => void;
   onCreate: (kind: DocKind) => void;
   onDelete: (path: string) => void;
+  onReveal?: (path: string) => void;
   onBack: () => void;
 }
 
@@ -29,7 +31,7 @@ const KINDS: Array<{ kind: DocKind; label: string; hint: string }> = [
   { kind: "page", label: "页面", hint: "关于、友链这类独立页" },
 ];
 
-export function FilesPage({ files, activePath, onOpen, onCreate, onDelete, onBack }: FilesPageProps) {
+export function FilesPage({ files, activePath, onOpen, onCreate, onDelete, onReveal, onBack }: FilesPageProps) {
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -172,6 +174,18 @@ export function FilesPage({ files, activePath, onOpen, onCreate, onDelete, onBac
                           {item.words > 0 && <i>{item.words} 字</i>}
                         </span>
                       </button>
+                      {isTauri() && onReveal ? (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          data-testid={`reveal-${slugFromPath(item.path)}`}
+                          title="打开文章位置"
+                          aria-label={`打开 ${item.title || prettyName(item.path)} 所在文件夹`}
+                          onClick={() => onReveal(item.path)}
+                        >
+                          <FolderOpenIcon className="ui-icon" aria-hidden="true" />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="icon-btn"
