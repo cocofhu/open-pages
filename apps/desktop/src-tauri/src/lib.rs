@@ -182,7 +182,28 @@ fn runtime_entry(bundle_dir: &Path) -> PathBuf {
     }
 }
 
-fn spawn_runtime(mut child: Child) -> Result<(), String> {
+/// The runtime's own stderr is the only clue when it dies on startup, so the
+/// release build tees it to a log file and replays the tail into the error the
+/// UI shows.
+fn runtime_log_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_log_dir().ok()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("runtime.log"))
+}
+
+fn runtime_log_tail(path: &Path) -> Option<String> {
+    const MAX_LINES: usize = 12;
+    let text = std::fs::read_to_string(path).ok()?;
+    let trimmed = text.trim_end();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lines: Vec<&str> = trimmed.lines().collect();
+    let tail = lines[lines.len().saturating_sub(MAX_LINES)..].join("\n");
+    Some(format!("{tail}\n(full log: {})", path.display()))
+}
+
+fn spawn_runtime(mut child: Child, log_path: Option<PathBuf>) -> Result<(), String> {
     for _ in 0..50 {
         if std::net::TcpStream::connect_timeout(
             &"127.0.0.1:3848"
@@ -197,7 +218,13 @@ fn spawn_runtime(mut child: Child) -> Result<(), String> {
             return Ok(());
         }
         if let Ok(Some(status)) = child.try_wait() {
-            return Err(format!("desktop runtime exited before becoming ready ({status})"));
+            let detail = log_path.as_deref().and_then(runtime_log_tail);
+            return Err(match detail {
+                Some(detail) => {
+                    format!("desktop runtime exited before becoming ready ({status})\n{detail}")
+                }
+                None => format!("desktop runtime exited before becoming ready ({status})"),
+            });
         }
         std::thread::sleep(Duration::from_millis(200));
     }
@@ -221,7 +248,7 @@ fn start_runtime_dev() -> Result<(), String> {
         .stderr(Stdio::inherit())
         .spawn()
         .map_err(|error| format!("failed to start desktop runtime: {error}"))?;
-    spawn_runtime(child)
+    spawn_runtime(child, None)
 }
 
 fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
@@ -231,6 +258,17 @@ fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
         return Err(format!("desktop runtime missing: {}", script.display()));
     }
     let node = resolve_node_binary(app)?;
+    let log_path = runtime_log_path(app);
+    let (stdout, stderr) = match log_path
+        .as_deref()
+        .and_then(|path| std::fs::File::create(path).ok())
+    {
+        Some(file) => match file.try_clone() {
+            Ok(clone) => (Stdio::from(file), Stdio::from(clone)),
+            Err(_) => (Stdio::null(), Stdio::from(file)),
+        },
+        None => (Stdio::null(), Stdio::null()),
+    };
     let child = hidden_command(node)
         .arg(&script)
         .current_dir(&bundle_dir)
@@ -238,11 +276,11 @@ fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
         .env("OPEN_PAGES_PREVIEW_PORT", "8788")
         .env("OPEN_PAGES_PREVIEW_ORIGIN", "http://127.0.0.1:8788")
         .env("NODE_ENV", "production")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
         .spawn()
         .map_err(|error| format!("failed to start desktop runtime: {error}"))?;
-    spawn_runtime(child)
+    spawn_runtime(child, log_path)
 }
 
 fn start_runtime() -> Result<(), String> {
