@@ -689,6 +689,7 @@ function workerPermissionArgs(
     hexoNodeModules,
     runnerNodeModules,
     workspaceNodeModules,
+    resolve(runnerRoot, "../.."),
     resolve(runnerNodeModules, "../../../node_modules"),
     tmpdir(),
   ]);
