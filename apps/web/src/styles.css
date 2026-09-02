@@ -131,6 +131,9 @@ button {
 .shell {
   display: grid;
   grid-template-columns: 268px 1fr;
+  /* An auto row would size to the editor's max-content and drag the sidebar
+     past the viewport, so the footer could only be reached by scrolling. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   background: var(--bg);
 }
@@ -352,6 +355,7 @@ li + li > .outline-item.level-1 {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--paper);
   box-shadow: -12px 0 40px rgba(28, 25, 21, 0.04);
 }

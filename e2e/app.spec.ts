@@ -70,6 +70,29 @@ test.describe("Open Pages editor", () => {
     await expect(page.locator(".crepe-host").getByText(heading!.trim(), { exact: true }).first()).toBeVisible();
   });
 
+  /**
+   * A long post used to stretch the grid row past the viewport, taking the
+   * sidebar with it, so Files/Settings could only be reached by scrolling.
+   */
+  test("sidebar footer stays in view while the editor scrolls", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 400 });
+    await boot(page);
+    await expect(page.getByTestId("editor-pane")).toContainText(/Typora|Hexo|GitHub Pages/);
+
+    const layout = await page.evaluate(() => {
+      const pane = document.querySelector(".editor-pane")!;
+      return {
+        docScrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight,
+        paneScrollsItself: pane.scrollHeight > pane.clientHeight,
+      };
+    });
+    expect(layout.docScrollHeight).toBeLessThanOrEqual(layout.viewportHeight);
+    expect(layout.paneScrollsItself).toBe(true);
+    await expect(page.getByTestId("btn-files")).toBeInViewport();
+    await expect(page.getByTestId("btn-settings")).toBeInViewport();
+  });
+
   test("manages files on a dedicated page", async ({ page }) => {
     await boot(page);
     await page.getByTestId("btn-files").click();
