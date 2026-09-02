@@ -34,6 +34,9 @@ body,
 #root {
   margin: 0;
   height: 100%;
+  /* Every surface scrolls a pane of its own. A document that also scrolls only
+     adds a second bar down the window edge, on top of the pane's own. */
+  overflow: hidden;
 }
 
 button,
@@ -50,74 +53,49 @@ button {
   cursor: pointer;
 }
 
-.sidebar-scroll,
-.studio-themes,
-.drawer,
-.editor-pane {
+/* One treatment for every scroller, listing panes by hand left the editor and
+   preview with the platform's chunky default next to the thin custom bars.
+   Standard properties win where they are supported; the -webkit- rules keep
+   older WebKit, which is what ships in the desktop shell, on the same look. */
+* {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ink) 28%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ink) 24%, transparent) transparent;
 }
 
-.sidebar-scroll::-webkit-scrollbar,
-.studio-themes::-webkit-scrollbar,
-.drawer::-webkit-scrollbar,
-.editor-pane::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-.sidebar-scroll::-webkit-scrollbar-track,
-.studio-themes::-webkit-scrollbar-track,
-.drawer::-webkit-scrollbar-track,
-.editor-pane::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
   margin: 6px 0;
 }
 
-.sidebar-scroll::-webkit-scrollbar-thumb,
-.studio-themes::-webkit-scrollbar-thumb,
-.drawer::-webkit-scrollbar-thumb,
-.editor-pane::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ink) 26%, transparent);
-  border: 2px solid transparent;
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink) 24%, transparent);
+  border: 3px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
 
-.sidebar-scroll::-webkit-scrollbar-thumb:hover,
-.studio-themes::-webkit-scrollbar-thumb:hover,
-.drawer::-webkit-scrollbar-thumb:hover,
-.editor-pane::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--ink) 46%, transparent);
-  border: 2px solid transparent;
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ink) 44%, transparent);
+  border: 3px solid transparent;
   background-clip: padding-box;
 }
 
-.sidebar-scroll::-webkit-scrollbar-button,
-.studio-themes::-webkit-scrollbar-button,
-.drawer::-webkit-scrollbar-button,
-.editor-pane::-webkit-scrollbar-button,
-.sidebar-scroll::-webkit-scrollbar-button:single-button,
-.studio-themes::-webkit-scrollbar-button:single-button,
-.drawer::-webkit-scrollbar-button:single-button,
-.editor-pane::-webkit-scrollbar-button:single-button,
-.sidebar-scroll::-webkit-scrollbar-button:vertical:start:decrement,
-.studio-themes::-webkit-scrollbar-button:vertical:start:decrement,
-.drawer::-webkit-scrollbar-button:vertical:start:decrement,
-.editor-pane::-webkit-scrollbar-button:vertical:start:decrement,
-.sidebar-scroll::-webkit-scrollbar-button:vertical:end:increment,
-.studio-themes::-webkit-scrollbar-button:vertical:end:increment,
-.drawer::-webkit-scrollbar-button:vertical:end:increment,
-.editor-pane::-webkit-scrollbar-button:vertical:end:increment {
+/* The stepper arrows sit at the ends of the track and never match the pill. */
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:single-button,
+::-webkit-scrollbar-button:vertical:start:decrement,
+::-webkit-scrollbar-button:vertical:end:increment {
   display: none;
   width: 0;
   height: 0;
 }
 
-.sidebar-scroll::-webkit-scrollbar-corner,
-.studio-themes::-webkit-scrollbar-corner,
-.drawer::-webkit-scrollbar-corner,
-.editor-pane::-webkit-scrollbar-corner {
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -845,6 +823,15 @@ li + li > .outline-item.level-1 {
 .source-pane,
 .source-preview-wrap {
   min-height: 0;
+}
+
+/* CodeMirror scrolls its own viewport, so a scrolling wrapper here would just
+   nest a second bar against the divider. */
+.source-pane {
+  overflow: hidden;
+}
+
+.source-preview-wrap {
   overflow: auto;
 }
 
@@ -1268,11 +1255,6 @@ li + li > .outline-item.level-1 {
   height: 15px;
 }
 
-html:has(.studio),
-body:has(.studio) {
-  overflow: hidden;
-}
-
 .studio {
   position: fixed;
   inset: 0;
@@ -1429,29 +1411,6 @@ body:has(.studio) {
   border-left: 1px solid var(--line);
   background: color-mix(in srgb, var(--paper) 82%, var(--sidebar));
   overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ink) 28%, transparent) transparent;
-}
-
-.studio-settings::-webkit-scrollbar {
-  width: 10px;
-}
-
-.studio-settings::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.studio-settings::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ink) 26%, transparent);
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background-clip: padding-box;
-}
-
-.studio-settings::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
 }
 
 .studio-settings-head h2 {

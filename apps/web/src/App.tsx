@@ -657,13 +657,19 @@ export function App() {
     );
   }
 
+  // A drag that reaches the hide threshold takes the panel out of the layout
+  // before the pointer is released. The shell has to drop its first column in
+  // the same breath, or grid auto-placement moves the editor into the empty
+  // track and squeezes it against the left edge.
+  const sidebarVisible = sidebarOpen && sidebarWidth > 0;
+
   return (
     <div
-      className={sidebarOpen ? "shell" : "shell sidebar-collapsed"}
+      className={sidebarVisible ? "shell" : "shell sidebar-collapsed"}
       data-testid="app-shell"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
     >
-      {sidebarOpen && (
+      {sidebarVisible && (
         <button
           type="button"
           className="sidebar-backdrop"
@@ -673,7 +679,7 @@ export function App() {
         />
       )}
       <Outline
-        open={sidebarOpen}
+        open={sidebarVisible}
         width={sidebarWidth}
         siteTitle={config.title}
         markdown={editable ? body : ""}

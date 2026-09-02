@@ -85,7 +85,7 @@ export function Outline({
   };
 
   return (
-    <aside className={open && width > 0 ? "sidebar" : "sidebar hidden"} data-testid="sidebar">
+    <aside className={open ? "sidebar" : "sidebar hidden"} data-testid="sidebar">
       <div className="brand">
         <strong>Open Pages</strong>
         <span data-testid="sidebar-site-title">{siteTitle === "Open Pages" ? "本地站点" : siteTitle}</span>

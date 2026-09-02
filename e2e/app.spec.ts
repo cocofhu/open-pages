@@ -131,6 +131,12 @@ test.describe("Open Pages editor", () => {
     // padding used to floor the width, leaving a strip over the editor that no
     // amount of dragging could push off the edge.
     await expect(page.getByTestId("sidebar")).toBeHidden();
+    // A panel taken out of the flow stops occupying its grid cell, so the shell
+    // has to drop the column too. Leaving it in place let auto-placement move
+    // the editor into the empty track and crush it against the left edge.
+    await expect
+      .poll(() => page.locator(".main").evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+      .toBe(1200);
     await page.mouse.move(0, resizedEdge!.y + 100);
     await page.mouse.up();
     await expect(page.getByTestId("sidebar")).toBeHidden();
