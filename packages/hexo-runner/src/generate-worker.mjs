@@ -17,9 +17,50 @@ if (!siteDir) {
 
 const require = createRequire(import.meta.url);
 const Hexo = require("hexo");
+const katex = require("katex");
 const { load: loadYaml } = require("js-yaml");
 const { deepMerge } = require("hexo-util");
 const GENERATE_TIMEOUT_MS = 60_000;
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function renderRichMarkdown(markdown) {
+  const protectedMarkdown = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g;
+  return markdown
+    .split(protectedMarkdown)
+    .map((part, index) => {
+      if (index % 2 === 1) {
+        const diagram = part.match(/^```mermaid[^\n]*\n([\s\S]*?)```$/i);
+        return diagram
+          ? `<div class="mermaid">${escapeHtml(diagram[1].trim())}</div>`
+          : part;
+      }
+      return part
+        .replace(/(?<!\\)\$\$\s*([\s\S]*?)\s*(?<!\\)\$\$/g, (_match, expression) =>
+          katex.renderToString(expression, {
+            displayMode: true,
+            throwOnError: false,
+            strict: false,
+          }),
+        )
+        .replace(
+          /(?<!\\)\$(?!\s)([^$\n]+?)(?<!\s)(?<!\\)\$/g,
+          (_match, expression) =>
+            katex.renderToString(expression, {
+              displayMode: false,
+              throwOnError: false,
+              strict: false,
+            }),
+        );
+    })
+    .join("");
+}
 
 // Some themes conditionally register generators and filters from `env.cmd`.
 // Match Hexo CLI semantics even though we invoke its API directly.
@@ -55,6 +96,10 @@ try {
   for (const plugin of plugins) {
     await hexo.loadPlugin(resolve(plugin.path));
   }
+  hexo.extend.filter.register("before_post_render", (data) => {
+    data.content = renderRichMarkdown(data.content);
+    return data;
+  }, -100);
   // Redirect the output after init: hexo derives `public_dir` from the config
   // while loading it, so overriding earlier would be discarded.
   hexo.config.public_dir = publicRel;

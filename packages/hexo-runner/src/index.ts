@@ -630,7 +630,6 @@ const MARKED_BLOCK = `marked:
   dompurify: true
   sanitizeUrl: true
 `;
-
 /** Force markdown HTML sanitization for every server-side generate. */
 async function ensureMarkedSanitize(siteDir: string): Promise<void> {
   const configPath = join(siteDir, "_config.yml");
@@ -650,7 +649,37 @@ async function ensureMarkedSanitize(siteDir: string): Promise<void> {
   } else {
     raw = `${raw.trimEnd()}\n${MARKED_BLOCK}`;
   }
+  raw = ensureMermaidHighlightExcluded(raw);
   await writeFile(configPath, raw.endsWith("\n") ? raw : `${raw}\n`);
+}
+
+function ensureMermaidHighlightExcluded(raw: string): string {
+  const lines = raw.split("\n");
+  const section = lines.findIndex((line) => /^highlight:\s*(?:#.*)?$/i.test(line));
+  if (section < 0) return raw;
+  let sectionEnd = section + 1;
+  while (
+    sectionEnd < lines.length &&
+    (/^\s/.test(lines[sectionEnd] ?? "") || !lines[sectionEnd]?.trim())
+  ) {
+    sectionEnd += 1;
+  }
+  const key = lines.findIndex(
+    (line, index) =>
+      index > section &&
+      index < sectionEnd &&
+      /^\s{2}exclude_languages:\s*(?:#.*)?$/i.test(line),
+  );
+  if (key < 0) {
+    lines.splice(sectionEnd, 0, "  exclude_languages:", "    - mermaid");
+    return lines.join("\n");
+  }
+  let keyEnd = key + 1;
+  while (keyEnd < sectionEnd && /^\s{4}/.test(lines[keyEnd] ?? "")) keyEnd += 1;
+  if (!lines.slice(key + 1, keyEnd).some((line) => /^\s*-\s*mermaid\s*$/i.test(line))) {
+    lines.splice(keyEnd, 0, "    - mermaid");
+  }
+  return lines.join("\n");
 }
 
 function workerEnv(): NodeJS.ProcessEnv {
@@ -883,19 +912,78 @@ async function polishPublicDir(publicDir: string, rebaseRoot?: string): Promise<
   await collectTextFiles(root, root, files);
   const rebase = Boolean(rebaseRoot && rebaseRoot !== "/");
   const preview = Boolean(rebaseRoot);
+  let usesMath = false;
+  let usesMermaid = false;
   for (const abs of files) {
     let text = await readFile(abs, "utf8");
     if (abs.endsWith(".html") || abs.endsWith(".htm")) {
       text = unescapeEscapedHeadTags(text);
       text = injectPreviewChrome(text, preview);
+      const pageUsesMath = containsMath(text);
+      const pageUsesMermaid =
+        /class=["'][^"']*\b(?:language-mermaid|mermaid)\b/i.test(text);
+      usesMath ||= pageUsesMath;
+      usesMermaid ||= pageUsesMermaid;
+      text = injectRichContent(text, pageUsesMath, pageUsesMermaid);
     }
     if (rebase && rebaseRoot) {
       text = rebaseAbsoluteUrls(text, rebaseRoot);
     }
     await writeFile(abs, text);
   }
+  await copyRichContentAssets(root, usesMath, usesMermaid);
   // GitHub Pages legacy deploys skip Jekyll only when this file is present.
   await writeFile(join(root, ".nojekyll"), "");
+}
+
+function containsMath(html: string): boolean {
+  return /class=["'][^"']*\bkatex\b/i.test(html);
+}
+
+function injectRichContent(html: string, math: boolean, mermaid: boolean): string {
+  if (!math && !mermaid) return html;
+  const head: string[] = [];
+  const body: string[] = [];
+  if (math) {
+    head.push('<link rel="stylesheet" href="/_open-pages/katex/katex.min.css">');
+  }
+  if (mermaid) {
+    body.push(
+      '<script defer src="/_open-pages/mermaid.min.js"></script>',
+      `<script>window.addEventListener("DOMContentLoaded",function(){document.querySelectorAll("pre > code.language-mermaid,pre > code.mermaid").forEach(function(code){var pre=code.parentElement;pre.className="mermaid";pre.textContent=code.textContent});mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"neutral"});mermaid.run({querySelector:".mermaid"})})</script>`,
+    );
+  }
+  let output = html;
+  const headMarkup = head.join("");
+  const bodyMarkup = body.join("");
+  output = /<\/head>/i.test(output)
+    ? output.replace(/<\/head>/i, `${headMarkup}</head>`)
+    : `${headMarkup}${output}`;
+  return /<\/body>/i.test(output)
+    ? output.replace(/<\/body>/i, `${bodyMarkup}</body>`)
+    : `${output}${bodyMarkup}`;
+}
+
+async function copyRichContentAssets(
+  publicDir: string,
+  math: boolean,
+  mermaid: boolean,
+): Promise<void> {
+  const assetDir = join(publicDir, "_open-pages");
+  if (math) {
+    const katexRoot = dirname(require.resolve("katex/package.json", { paths: [runnerRoot] }));
+    const dest = join(assetDir, "katex");
+    await mkdir(dest, { recursive: true });
+    await Promise.all([
+      cp(join(katexRoot, "dist/katex.min.css"), join(dest, "katex.min.css")),
+      cp(join(katexRoot, "dist/fonts"), join(dest, "fonts"), { recursive: true }),
+    ]);
+  }
+  if (mermaid) {
+    const mermaidRoot = dirname(require.resolve("mermaid/package.json", { paths: [runnerRoot] }));
+    await mkdir(assetDir, { recursive: true });
+    await cp(join(mermaidRoot, "dist/mermaid.min.js"), join(assetDir, "mermaid.min.js"));
+  }
 }
 
 const PREVIEW_CHROME_CSS = `

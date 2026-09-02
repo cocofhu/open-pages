@@ -127,6 +127,11 @@ test.describe("Open Pages editor", () => {
     await page.mouse.move(resizedEdge!.x + resizedEdge!.width / 2, resizedEdge!.y + 100);
     await page.mouse.down();
     await page.mouse.move(40, resizedEdge!.y + 100);
+    // The panel has to clear the viewport while the button is still down: its
+    // padding used to floor the width, leaving a strip over the editor that no
+    // amount of dragging could push off the edge.
+    await expect(page.getByTestId("sidebar")).toBeHidden();
+    await page.mouse.move(0, resizedEdge!.y + 100);
     await page.mouse.up();
     await expect(page.getByTestId("sidebar")).toBeHidden();
 
@@ -201,6 +206,51 @@ test.describe("Open Pages editor", () => {
     await expect(source.locator(".cm-content")).toContainText("---");
     await expect(page.getByTestId("source-preview")).toBeVisible();
     await expect(page.getByTestId("wysiwyg-editor")).toHaveCount(0);
+  });
+
+  test("renders LaTeX and Mermaid in the editor and Hexo preview", async ({ page }) => {
+    test.setTimeout(240_000);
+    await boot(page);
+    await page.getByTestId("btn-source").click();
+    const editor = page.getByTestId("source-editor").locator(".cm-content");
+    await editor.click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.insertText(`---
+title: Math and diagrams
+date: 2026-09-02 16:00:00
+---
+
+Inline math: $E = mc^2$
+
+$$
+\\int_0^1 x^2\\,dx = \\frac{1}{3}
+$$
+
+\`\`\`mermaid
+graph LR
+  A --> B
+\`\`\`
+`);
+
+    const sourcePreview = page.getByTestId("source-preview");
+    await expect(sourcePreview.locator(".katex")).toHaveCount(2);
+    await expect(sourcePreview.locator(".mermaid-diagram svg")).toBeVisible();
+
+    await page.getByTestId("btn-write").click();
+    const writing = page.getByTestId("wysiwyg-editor");
+    await expect(writing.locator(".katex")).toHaveCount(2);
+    await expect(writing.locator(".mermaid-diagram svg")).toBeVisible();
+    await page.getByTestId("btn-source").click();
+    const roundTrippedSource = page.getByTestId("source-editor").locator(".cm-content");
+    await expect(roundTrippedSource).toContainText("```mermaid");
+    await expect(roundTrippedSource).toContainText("graph LR");
+
+    await openHexoPreview(page);
+    const generated = page.frameLocator('[data-testid="preview-frame"]');
+    await expect(generated.locator(".katex")).toHaveCount(2);
+    await expect(generated.locator("p .katex").first()).toBeVisible();
+    await expect(generated.locator(".katex-display").first()).toBeVisible();
+    await expect(generated.locator(".mermaid svg")).toBeVisible();
   });
 
   test("creates a post from the in-app dialog", async ({ page }) => {

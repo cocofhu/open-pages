@@ -18,6 +18,13 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
 const HIDE_THRESHOLD = 120;
 
+/** Past the threshold the drag previews the hidden state instead of squeezing
+ *  the panel: a border-box aside cannot render narrower than its padding, so
+ *  every width in between leaves a strip sitting on top of the editor. */
+function widthFor(clientX: number): number {
+  return clientX <= HIDE_THRESHOLD ? 0 : Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, clientX));
+}
+
 export function Outline({
   open,
   width,
@@ -37,38 +44,48 @@ export function Outline({
     if (event.button !== 0) return;
     event.preventDefault();
     const startingWidth = width;
-    document.body.classList.add("resizing-sidebar");
+    const { pointerId } = event;
+    // The gesture ends at the window's left edge, and a cursor that slips past
+    // it stops delivering events to an uncaptured pointer, stranding the panel
+    // mid-collapse. Body holds the capture because the handle itself goes away
+    // once the drag previews the hidden state.
+    const capture = document.body;
+    capture.setPointerCapture(pointerId);
+    capture.classList.add("resizing-sidebar");
 
-    const move = (next: PointerEvent) => {
-      onResize(Math.min(MAX_WIDTH, Math.max(0, next.clientX)));
-    };
-    const finish = (next: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", cancel);
-      document.body.classList.remove("resizing-sidebar");
+    function move(next: PointerEvent) {
+      onResize(widthFor(next.clientX));
+    }
+    function finish(next: PointerEvent) {
+      stop();
       if (next.clientX <= HIDE_THRESHOLD) {
         onResize(startingWidth);
         onHide();
       } else {
-        onResize(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next.clientX)));
+        onResize(widthFor(next.clientX));
       }
-    };
-    const cancel = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", cancel);
-      document.body.classList.remove("resizing-sidebar");
+    }
+    function cancel() {
+      stop();
       onResize(startingWidth);
-    };
+    }
+    function stop() {
+      capture.removeEventListener("pointermove", move);
+      capture.removeEventListener("pointerup", finish);
+      capture.removeEventListener("pointercancel", cancel);
+      capture.removeEventListener("lostpointercapture", cancel);
+      capture.classList.remove("resizing-sidebar");
+      if (capture.hasPointerCapture(pointerId)) capture.releasePointerCapture(pointerId);
+    }
 
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", cancel);
+    capture.addEventListener("pointermove", move);
+    capture.addEventListener("pointerup", finish);
+    capture.addEventListener("pointercancel", cancel);
+    capture.addEventListener("lostpointercapture", cancel);
   };
 
   return (
-    <aside className={open ? "sidebar" : "sidebar hidden"} data-testid="sidebar">
+    <aside className={open && width > 0 ? "sidebar" : "sidebar hidden"} data-testid="sidebar">
       <div className="brand">
         <strong>Open Pages</strong>
         <span data-testid="sidebar-site-title">{siteTitle === "Open Pages" ? "本地站点" : siteTitle}</span>

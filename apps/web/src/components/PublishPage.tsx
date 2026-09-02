@@ -2,6 +2,7 @@ import {
   ArrowLeftIcon,
   ArrowPathIcon,
   ArrowTopRightOnSquareIcon,
+  CheckCircleIcon,
   EyeIcon,
   GlobeAltIcon,
   RocketLaunchIcon,
@@ -302,10 +303,14 @@ export function PublishPage({
               </section>
 
               {showPublishFeedback && site ? (
-                <div className="publish-url">
-                  <GlobeAltIcon className="ui-icon" aria-hidden="true" />
+                <div className={resultUrl ? "publish-url published" : "publish-url"}>
+                  {resultUrl ? (
+                    <CheckCircleIcon className="ui-icon" aria-hidden="true" />
+                  ) : (
+                    <GlobeAltIcon className="ui-icon" aria-hidden="true" />
+                  )}
                   <div className="publish-url-text">
-                    <span className="publish-url-label">{resultUrl ? "站点地址" : "发布后访问"}</span>
+                    <span className="publish-url-label">{resultUrl ? "发布成功" : "发布后访问"}</span>
                     <a href={resultUrl ?? site} target="_blank" rel="noreferrer">
                       {resultUrl ?? site}
                       <ArrowTopRightOnSquareIcon className="ui-icon" aria-hidden="true" />
@@ -327,16 +332,6 @@ export function PublishPage({
                   <p className="hint">{status}</p>
                 </div>
               ) : null}
-              {showPublishFeedback && resultUrl ? (
-                <div className="publish-success">
-                  <strong>发布成功</strong>
-                  <a href={resultUrl} target="_blank" rel="noreferrer">
-                    {resultUrl}
-                    <ArrowTopRightOnSquareIcon className="ui-icon" aria-hidden="true" />
-                  </a>
-                </div>
-              ) : null}
-
               <footer className="publish-foot">
                 <button
                   type="button"

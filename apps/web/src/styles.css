@@ -959,6 +959,28 @@ li + li > .outline-item.level-1 {
   color: inherit;
 }
 
+.mermaid-diagram {
+  margin: 0 0 1.25em;
+  overflow: auto;
+  text-align: center;
+}
+
+.mermaid-diagram svg {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  color: #a33b32;
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25em;
+}
+
 .source-preview img {
   max-width: 100%;
   height: auto;
@@ -2891,6 +2913,18 @@ body:has(.studio) {
   font-weight: 650;
 }
 
+/* The same card reports the outcome once the push lands, so the address is
+   never announced twice on one screen. */
+.publish-url.published {
+  border-color: color-mix(in srgb, var(--ok) 28%, var(--line));
+  background: color-mix(in srgb, var(--ok) 6%, var(--paper));
+}
+
+.publish-url.published > .ui-icon,
+.publish-url.published .publish-url-label {
+  color: var(--ok);
+}
+
 .publish-url a {
   display: inline-flex;
   align-items: center;
@@ -2930,30 +2964,6 @@ body:has(.studio) {
   background: color-mix(in srgb, var(--danger) 8%, var(--paper));
   color: var(--danger);
   font-size: 13px;
-}
-
-.publish-success {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--ok) 28%, var(--line));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--ok) 6%, var(--paper));
-}
-
-.publish-success strong {
-  font-size: 13px;
-  color: var(--ok);
-}
-
-.publish-success a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink);
-  font-size: 14px;
-  overflow-wrap: anywhere;
 }
 
 .publish-repo-check {

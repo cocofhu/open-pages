@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cp, lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -75,7 +75,12 @@ export async function useCompiledWorkspaceEntries(scope) {
     manifest.exports = {
       ".": { types: "./dist/index.d.ts", default: "./dist/index.js" },
     };
-    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    // pnpm deploy may clone files as hard links. Truncating this path in place
+    // would then rewrite the workspace package.json too; replace the directory
+    // entry atomically so only the bundled copy changes.
+    const stagedManifest = `${manifestPath}.open-pages-tmp`;
+    await writeFile(stagedManifest, `${JSON.stringify(manifest, null, 2)}\n`);
+    await rename(stagedManifest, manifestPath);
     console.log(`repointed @open-pages/${name} at dist/index.js`);
     repointed.push(name);
   }

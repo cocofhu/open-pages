@@ -18,6 +18,7 @@ import { parseFrontMatter } from "@open-pages/shared";
 import { ViewColumnsIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
 import { collectSourceHeadings, type OutlineHeading } from "../lib/outline";
 import { renderMarkdownPreview } from "../lib/markdown-preview";
+import { renderMermaidBlocks, renderMermaidDiagram } from "../lib/mermaid";
 
 interface EditorProps {
   value: string;
@@ -55,6 +56,21 @@ export function MarkdownEditor({ value, onChange, onUploadImage, resolveImageUrl
           inlineUploadPlaceholderText: "或粘贴链接",
           blockUploadPlaceholderText: "或粘贴链接",
           blockCaptionPlaceholderText: "图片说明",
+        },
+        [Crepe.Feature.CodeMirror]: {
+          renderPreview: (language, content, applyPreview) => {
+            if (language.toLowerCase() !== "mermaid") return null;
+            void renderMermaidDiagram(content)
+              .then(applyPreview)
+              .catch(() => {
+                const error = document.createElement("div");
+                error.className = "mermaid-error";
+                error.textContent = "Mermaid 图表语法有误";
+                applyPreview(error);
+              });
+            return undefined;
+          },
+          previewOnlyByDefault: true,
         },
       },
     });
@@ -129,6 +145,7 @@ export const SourceEditor = forwardRef<
   }
 >(function SourceEditor({ value, onChange }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
@@ -209,6 +226,18 @@ export const SourceEditor = forwardRef<
     return renderMarkdownPreview(body);
   }, [value]);
 
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!split || !preview) return;
+    // CodeMirror can emit several updates for one paste. Wait until React has
+    // committed the last HTML snapshot so Mermaid never renders into a node a
+    // newer commit has already detached.
+    const timer = window.setTimeout(() => {
+      void renderMermaidBlocks(preview);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [previewHtml, split]);
+
   const setSplitMode = (next: boolean) => {
     setSplit(next);
     try {
@@ -252,7 +281,11 @@ export const SourceEditor = forwardRef<
         {split ? (
           <div className="source-preview-wrap" data-testid="source-preview">
             <p className="source-preview-kicker">实时预览</p>
-            <div className="source-preview" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+            <div
+              ref={previewRef}
+              className="source-preview"
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
           </div>
         ) : null}
       </div>

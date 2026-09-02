@@ -21,7 +21,10 @@
     "@open-pages/shared": "workspace:*",
     "@tauri-apps/api": "^2.8.0",
     "idb": "^8.0.3",
+    "katex": "^0.18.5",
     "markdown-it": "^14.3.1",
+    "markdown-it-texmath": "^1.0.0",
+    "mermaid": "^11.16.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "workbox-window": "^7.4.1"
