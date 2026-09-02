@@ -104,6 +104,30 @@ pnpm --filter @open-pages/desktop exec tauri build -- --target aarch64-apple-dar
 pnpm --filter @open-pages/desktop exec tauri build -- --target x86_64-apple-darwin
 ```
 
+### 安装 macOS 版
+
+推荐命令行安装，自动按 CPU 架构选 `aarch64` / `x64` 的 dmg 装进 `/Applications`，全程没有安全提示：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cocofhu/open-pages/main/scripts/install-macos.sh | sh
+```
+
+从 Release 页面用浏览器下载的话，首次打开会提示"已损坏，无法打开"。安装包只做了 ad-hoc
+签名，没有 Apple Developer ID 签名和公证；而 `com.apple.quarantine` 是**下载器**打上的
+标记——Chrome、Safari 会打，`curl` 不会。带这个标记的未公证 app，Gatekeeper 在 Apple
+Silicon 上就直接报损坏，并不是产物真的坏了。上面的脚本能绕开，正是因为走的 `curl`。
+
+已经用浏览器下载过的，把 app 拖进「应用程序」后执行一次即可，或者右键 → 打开再在弹窗里选「打开」：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Open Pages.app"
+```
+
+要让用户双击就能装、完全不见提示，需要付费的 Apple Developer 账号（$99/年）：在 CI 配置
+`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_ID`、
+`APPLE_PASSWORD`、`APPLE_TEAM_ID`，`tauri-action` 会自动完成签名与公证。免费开发者账号只能
+签 Apple Development 证书，无法用于分发。
+
 ## Web 开发（legacy Auth）
 
 需要 Node 20+ 与 pnpm 10。
