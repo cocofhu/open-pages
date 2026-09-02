@@ -248,10 +248,39 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!toast || toast.kind === "error") return;
+    if (!toast || toast.kind === "error" || toast.sticky) return;
     const timer = window.setTimeout(() => setToast(null), 6000);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // The desktop client signs in through GitHub's device flow, so the verification
+  // code has to reach the user even if the helper browser tab never opens.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let dispose: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const unlisten = await listen<{ userCode: string; verificationUri: string }>(
+        "github-device-code",
+        (event) => {
+          setToast({
+            kind: "info",
+            text: `在 GitHub 输入验证码 ${event.payload.userCode} 完成登录`,
+            href: event.payload.verificationUri,
+            linkText: "打开 GitHub",
+            sticky: true,
+          });
+        },
+      );
+      if (cancelled) unlisten();
+      else dispose = unlisten;
+    })();
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
+  }, []);
 
   const persistCurrent = useCallback(
     async (nextMatter = matter, nextBody = body, path = editingPathRef.current) => {
@@ -553,7 +582,9 @@ export function App() {
     void platform
       .login()
       .then((next) => {
-        if (next) setUser(next);
+        if (!next) return;
+        setUser(next);
+        setToast(next.login ? { kind: "ok", text: `已登录 GitHub：${next.login}` } : null);
       })
       .catch((error: unknown) => {
         setToast({ kind: "error", text: errorMessage(error, "登录失败") });

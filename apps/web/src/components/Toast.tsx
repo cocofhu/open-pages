@@ -4,6 +4,8 @@ export interface ToastState {
   kind: "info" | "ok" | "error";
   text: string;
   href?: string;
+  linkText?: string;
+  sticky?: boolean;
 }
 
 export function Toast({ toast, onDismiss }: { toast: ToastState | null; onDismiss: () => void }) {
@@ -14,7 +16,7 @@ export function Toast({ toast, onDismiss }: { toast: ToastState | null; onDismis
       {toast.href && (
         <a href={toast.href} target="_blank" rel="noreferrer" data-testid="toast-link" className="icon-label">
           <ArrowTopRightOnSquareIcon className="ui-icon" aria-hidden="true" />
-          打开预览
+          {toast.linkText ?? "打开预览"}
         </a>
       )}
       <button type="button" className="ghost toast-close" onClick={onDismiss} aria-label="关闭">

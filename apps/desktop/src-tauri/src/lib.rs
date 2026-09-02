@@ -8,13 +8,44 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::path::BaseDirectory;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 const CONTROL_ORIGIN: &str = "http://127.0.0.1:3848";
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static RUNTIME: Mutex<Option<Child>> = Mutex::new(None);
+static CONTROL_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+/// Windows gives every child process its own console, which flashes a black
+/// window over the app each time we probe for Node or open a browser.
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
+/// A system-wide proxy (VPN clients set one) otherwise swallows requests to the
+/// local runtime and surfaces as "error sending request".
+fn control_client() -> Result<&'static reqwest::Client, String> {
+    if let Some(client) = CONTROL_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let _ = CONTROL_CLIENT.set(client);
+    CONTROL_CLIENT
+        .get()
+        .ok_or_else(|| "failed to create control client".to_string())
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,19 +142,21 @@ fn open_in_browser(app: &AppHandle, url: &str) -> Result<(), String> {
         return Ok(());
     }
     let mut command = if cfg!(target_os = "windows") {
-        let mut cmd = Command::new("cmd");
-        cmd.args(["/C", "start", "", url]);
+        let mut cmd = hidden_command("rundll32.exe");
+        cmd.args(["url.dll,FileProtocolHandler", url]);
         cmd
     } else if cfg!(target_os = "macos") {
-        let mut cmd = Command::new("open");
+        let mut cmd = hidden_command("open");
         cmd.arg(url);
         cmd
     } else {
-        let mut cmd = Command::new("xdg-open");
+        let mut cmd = hidden_command("xdg-open");
         cmd.arg(url);
         cmd
     };
     command
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("failed to open browser: {error}"))?;
     Ok(())
@@ -131,7 +164,7 @@ fn open_in_browser(app: &AppHandle, url: &str) -> Result<(), String> {
 
 fn command_exists(name: &str) -> bool {
     let program = if cfg!(windows) { "where" } else { "which" };
-    Command::new(program)
+    hidden_command(program)
         .arg(name)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -178,7 +211,7 @@ fn start_runtime_dev() -> Result<(), String> {
         return Err(format!("desktop runtime missing: {}", script.display()));
     }
     let desktop_dir = dev_desktop_dir()?;
-    let child = Command::new("pnpm")
+    let child = hidden_command("pnpm")
         .args(["exec", "tsx", script.to_string_lossy().as_ref()])
         .current_dir(&desktop_dir)
         .env("OPEN_PAGES_CONTROL_PORT", "3848")
@@ -198,15 +231,15 @@ fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
         return Err(format!("desktop runtime missing: {}", script.display()));
     }
     let node = resolve_node_binary(app)?;
-    let child = Command::new(node)
+    let child = hidden_command(node)
         .arg(&script)
         .current_dir(&bundle_dir)
         .env("OPEN_PAGES_CONTROL_PORT", "3848")
         .env("OPEN_PAGES_PREVIEW_PORT", "8788")
         .env("OPEN_PAGES_PREVIEW_ORIGIN", "http://127.0.0.1:8788")
         .env("NODE_ENV", "production")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("failed to start desktop runtime: {error}"))?;
     spawn_runtime(child)
@@ -243,7 +276,7 @@ async fn control_request(
 ) -> Result<Value, String> {
     start_runtime()?;
     let token = github_auth::stored_token();
-    let client = reqwest::Client::new();
+    let client = control_client()?;
     let mut req = client.request(method, format!("{CONTROL_ORIGIN}{path}"));
     if let Some(token) = token {
         req = req.bearer_auth(token);
@@ -251,7 +284,11 @@ async fn control_request(
     if let Some(body) = body {
         req = req.json(&body);
     }
-    let response = req.send().await.map_err(|error| error.to_string())?;
+    let response = req.send().await.map_err(|error| {
+        format!(
+            "无法连接本地生成服务 {CONTROL_ORIGIN}（{error}）。若开启了系统代理或 VPN，请把 127.0.0.1 设为直连。"
+        )
+    })?;
     let status = response.status();
     let value = response.json::<Value>().await.unwrap_or(Value::Null);
     if !status.is_success() {
@@ -282,7 +319,17 @@ async fn github_login(app: tauri::AppHandle) -> Result<AuthUser, String> {
             "GitHub Client ID is missing in this build. Reinstall a release built with OPEN_PAGES_GITHUB_CLIENT_ID, or set GITHUB_CLIENT_ID before launching.".into(),
         );
     }
-    let session = github_auth::login(|url| open_in_browser(&app, url)).await?;
+    let emitter = app.clone();
+    let session = github_auth::login(
+        |url| open_in_browser(&app, url),
+        move |user_code, verification_uri| {
+            let _ = emitter.emit(
+                "github-device-code",
+                serde_json::json!({ "userCode": user_code, "verificationUri": verification_uri }),
+            );
+        },
+    )
+    .await?;
     Ok(AuthUser {
         guest_id: "desktop".into(),
         login: session.login,

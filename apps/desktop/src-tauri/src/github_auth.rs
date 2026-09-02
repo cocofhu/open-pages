@@ -18,20 +18,6 @@ pub struct GitHubSession {
     pub github_enabled: bool,
 }
 
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: Option<String>,
-    error: Option<String>,
-    error_description: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct GitHubUser {
-    login: String,
-    name: Option<String>,
-    avatar_url: String,
-}
-
 fn secrets_path() -> PathBuf {
     dirs_home().join(".open-pages").join("secrets.json")
 }
@@ -148,13 +134,65 @@ pub fn logout() -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct DeviceCodeResponse {
-    device_code: String,
-    user_code: String,
-    verification_uri: String,
-    expires_in: u64,
-    interval: Option<u64>,
+fn github_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("OpenPages-Desktop/0.1.5")
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+fn json_u64(value: &serde_json::Value, key: &str) -> Option<u64> {
+    value.get(key).and_then(|v| {
+        v.as_u64()
+            .or_else(|| v.as_i64().and_then(|n| u64::try_from(n).ok()))
+            .or_else(|| v.as_str()?.parse().ok())
+    })
+}
+
+fn error_code(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("error")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+fn error_text(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("error_description")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("message").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .filter(|text| !text.is_empty())
+        .or_else(|| error_code(value))
+}
+
+/// Device flow is off by default on OAuth apps, and GitHub then answers with a
+/// generic error, so spell the fix out instead of leaking the raw payload.
+fn device_flow_error(status: reqwest::StatusCode, value: &serde_json::Value) -> String {
+    let detail = error_text(value).unwrap_or_else(|| format!("HTTP {status}"));
+    format!(
+        "{detail}。请在 GitHub Developer settings → OAuth Apps → 该应用中勾选 Enable Device Flow。"
+    )
+}
+
+/// Returns the parsed body even for error payloads: the device flow reports
+/// `authorization_pending` as a normal 200 response the caller has to poll on.
+async fn github_json(
+    response: reqwest::Response,
+) -> Result<(reqwest::StatusCode, serde_json::Value), String> {
+    let status = response.status();
+    let raw = response
+        .text()
+        .await
+        .map_err(|e| format!("GitHub 响应读取失败: {e}"))?;
+    match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(value) => Ok((status, value)),
+        Err(_) => {
+            let snippet: String = raw.replace('\n', " ").chars().take(160).collect();
+            Err(format!("GitHub 返回了非 JSON 响应（{status}）：{snippet}"))
+        }
+    }
 }
 
 fn serve_device_page(listener: &TcpListener, user_code: &str, verification_uri: &str) {
@@ -177,94 +215,147 @@ fn serve_device_page(listener: &TcpListener, user_code: &str, verification_uri: 
     }
 }
 
-pub async fn login(mut open_url: impl FnMut(&str) -> Result<(), String>) -> Result<GitHubSession, String> {
+pub async fn login(
+    mut open_url: impl FnMut(&str) -> Result<(), String>,
+    mut on_code: impl FnMut(&str, &str),
+) -> Result<GitHubSession, String> {
     let client_id = client_id();
     if client_id.is_empty() {
         return Err("GITHUB_CLIENT_ID is not set".into());
     }
 
-    let client = reqwest::Client::new();
-    let device = client
+    let client = github_client()?;
+    // GitHub's device endpoints only accept form bodies. JSON is ignored and the
+    // response is HTML / {"error":"Not Found"}, which used to surface as
+    // "error decoding response body".
+    let response = client
         .post("https://github.com/login/device/code")
         .header("Accept", "application/json")
-        .json(&serde_json::json!({
-            "client_id": client_id,
-            "scope": "repo read:user",
-        }))
+        .form(&[("client_id", client_id.as_str()), ("scope", "repo read:user")])
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .json::<DeviceCodeResponse>()
-        .await
-        .map_err(|e| format!("GitHub device login failed: {e}"))?;
+        .map_err(|e| format!("无法连接 GitHub 设备登录接口: {e}"))?;
+    let (status, device_json) = github_json(response).await?;
+    let Some(device_code) = device_json
+        .get("device_code")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+    else {
+        return Err(device_flow_error(status, &device_json));
+    };
+    let user_code = device_json
+        .get("user_code")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let verification_uri = device_json
+        .get("verification_uri")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("https://github.com/login/device")
+        .to_string();
+    let verification_complete = device_json
+        .get("verification_uri_complete")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let expires_in = json_u64(&device_json, "expires_in").unwrap_or(900);
+    let interval_secs = json_u64(&device_json, "interval").unwrap_or(5).max(5);
+
+    on_code(&user_code, &verification_uri);
 
     let listener = TcpListener::bind("127.0.0.1:3847").ok();
     if let Some(listener) = &listener {
         let _ = listener.set_nonblocking(true);
     }
     let _ = open_url("http://127.0.0.1:3847/");
-    open_url(&device.verification_uri)?;
+    open_url(verification_complete.as_deref().unwrap_or(&verification_uri))?;
 
-    let mut interval = Duration::from_secs(device.interval.unwrap_or(5).max(5));
-    let deadline = Instant::now() + Duration::from_secs(device.expires_in.min(900));
+    let mut interval = Duration::from_secs(interval_secs);
+    let deadline = Instant::now() + Duration::from_secs(expires_in.min(900));
     let token = loop {
-        if let Some(listener) = &listener {
-            serve_device_page(listener, &device.user_code, &device.verification_uri);
-        }
         if Instant::now() >= deadline {
             return Err(format!(
                 "GitHub device login expired. Enter code {} at {} and try again.",
-                device.user_code, device.verification_uri
+                user_code, verification_uri
             ));
         }
-        tokio::time::sleep(interval).await;
-        let token_res = client
+        // Keep serving the code page while waiting instead of once per interval.
+        let wake = Instant::now() + interval;
+        while Instant::now() < wake {
+            if let Some(listener) = &listener {
+                serve_device_page(listener, &user_code, &verification_uri);
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let response = client
             .post("https://github.com/login/oauth/access_token")
             .header("Accept", "application/json")
-            .json(&serde_json::json!({
-                "client_id": client_id,
-                "device_code": device.device_code,
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-            }))
+            .form(&[
+                ("client_id", client_id.as_str()),
+                ("device_code", device_code.as_str()),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ])
             .send()
             .await
-            .map_err(|e| e.to_string())?
-            .json::<TokenResponse>()
-            .await
-            .map_err(|e| e.to_string())?;
-        if let Some(token) = token_res.access_token {
-            break token;
+            .map_err(|e| format!("无法连接 GitHub 换票接口: {e}"))?;
+        let (status, token_json) = github_json(response).await?;
+        if let Some(token) = token_json
+            .get("access_token")
+            .and_then(serde_json::Value::as_str)
+        {
+            break token.to_string();
         }
-        match token_res.error.as_deref() {
-            Some("authorization_pending") | None => {}
+        match error_code(&token_json).as_deref() {
+            Some("authorization_pending") => {}
             Some("slow_down") => interval += Duration::from_secs(5),
-            Some("expired_token") => return Err("GitHub device login expired. Try again.".into()),
-            Some("access_denied") => return Err("GitHub login was denied.".into()),
+            Some("expired_token") => return Err("GitHub 登录码已过期，请重新登录。".into()),
+            Some("access_denied") => return Err("GitHub 登录被拒绝。".into()),
+            Some("unauthorized_client") | Some("unsupported_grant_type") => {
+                return Err(device_flow_error(status, &token_json));
+            }
             Some(_) => {
-                return Err(token_res
-                    .error_description
-                    .or(token_res.error)
+                return Err(error_text(&token_json)
                     .unwrap_or_else(|| "GitHub OAuth exchange failed".into()));
+            }
+            None => {
+                return Err(error_text(&token_json)
+                    .unwrap_or_else(|| format!("GitHub 未返回访问令牌（{status}）")));
             }
         }
     };
 
-    let user = client
+    let response = client
         .get("https://api.github.com/user")
         .header("Accept", "application/vnd.github+json")
         .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "open-pages")
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .json::<GitHubUser>()
-        .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("无法读取 GitHub 用户信息: {e}"))?;
+    let (status, user_json) = github_json(response).await?;
+    let Some(login) = user_json
+        .get("login")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+    else {
+        return Err(
+            error_text(&user_json).unwrap_or_else(|| format!("GitHub 用户信息获取失败（{status}）"))
+        );
+    };
+    let name = user_json
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| login.clone());
+    let avatar_url = user_json
+        .get("avatar_url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
 
     let session = GitHubSession {
-        login: Some(user.login.clone()),
-        name: Some(user.name.unwrap_or(user.login)),
-        avatar_url: Some(user.avatar_url),
+        login: Some(login),
+        name: Some(name),
+        avatar_url: Some(avatar_url),
         github_enabled: true,
     };
     store_secret(TOKEN_ACCOUNT, &token)?;
