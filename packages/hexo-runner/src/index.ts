@@ -25,6 +25,7 @@ import {
 const require = createRequire(import.meta.url);
 const runnerRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runnerNodeModules = join(runnerRoot, "node_modules");
+const workspaceNodeModules = resolve(runnerRoot, "../../node_modules");
 const hexoNodeModules = (() => {
   try {
     return resolve(dirname(require.resolve("hexo/package.json", { paths: [runnerRoot] })), "..");
@@ -32,7 +33,7 @@ const hexoNodeModules = (() => {
     return runnerNodeModules;
   }
 })();
-const nodeModuleSearch = [hexoNodeModules, runnerNodeModules]
+const nodeModuleSearch = [hexoNodeModules, runnerNodeModules, workspaceNodeModules]
   .filter((value, index, all) => all.indexOf(value) === index)
   .join(delimiter);
 const generateWorkerPath = fileURLToPath(new URL("./generate-worker.mjs", import.meta.url));
@@ -687,6 +688,7 @@ function workerPermissionArgs(
     dirname(generateWorkerPath),
     hexoNodeModules,
     runnerNodeModules,
+    workspaceNodeModules,
     tmpdir(),
   ]);
   for (const path of [themeSource, ...plugins.map((plugin) => plugin.path)]) {
