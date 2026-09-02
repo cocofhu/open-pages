@@ -370,8 +370,7 @@ li + li > .outline-item.level-1 {
 .top-left,
 .top-actions,
 .account,
-.seg,
-.sidebar-foot {
+.seg {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -511,31 +510,45 @@ li + li > .outline-item.level-1 {
   border: 0;
 }
 
+/* Mirrors .settings-tabs: equal-width pills on a grid. The auto column keeps the
+   collapse control from stealing width from the two destinations. */
 .sidebar-foot {
   flex: none;
-  margin-top: 0;
+  /* Holds the bar down even if the outline above ever stops filling the gap. */
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: 6px;
   padding: 10px 4px 2px;
   border-top: 1px solid var(--line);
-  justify-content: space-between;
-  flex-wrap: nowrap;
   background: var(--sidebar);
 }
 
 .sidebar-foot .ghost {
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 13px;
+  justify-content: center;
+  min-width: 0;
+  padding: var(--control-pad-y) var(--control-pad-x);
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  background: transparent;
   color: var(--muted);
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  line-height: var(--control-line-height);
 }
 
 .sidebar-foot .ghost:hover {
-  background: rgb(255 255 255 / 42%);
+  background: #efe6d8;
   color: var(--ink);
 }
 
 .sidebar-foot .icon-btn-plain {
-  margin-left: auto;
-  padding: 6px;
+  /* Without this the inline svg sits on the text baseline and the button ends up
+     taller than the two pills beside it. */
+  display: inline-flex;
+  align-items: center;
+  padding: var(--control-pad-y);
 }
 
 .sidebar-backdrop {
