@@ -123,6 +123,10 @@ Silicon 上就直接报损坏，并不是产物真的坏了。上面的脚本能
 xattr -dr com.apple.quarantine "/Applications/Open Pages.app"
 ```
 
+ad-hoc 签名会打开 Hardened Runtime。内置的 Node sidecar 依赖 V8 JIT，所以 macOS 打包使用
+`apps/desktop/src-tauri/entitlements.plist`（`allow-jit` 等），否则 sidecar 会在启动时
+`SIGTRAP`，界面上显示「desktop runtime exited before becoming ready」。
+
 要让用户双击就能装、完全不见提示，需要付费的 Apple Developer 账号（$99/年）：在 CI 配置
 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_ID`、
 `APPLE_PASSWORD`、`APPLE_TEAM_ID`，`tauri-action` 会自动完成签名与公证。免费开发者账号只能

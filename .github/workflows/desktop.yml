@@ -119,7 +119,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPEN_PAGES_GITHUB_CLIENT_ID: ${{ vars.OPEN_PAGES_GITHUB_CLIENT_ID }}
           # Ad-hoc signature. Without it Gatekeeper reports the bundle as damaged
-          # on Apple Silicon instead of offering the "open anyway" path.
+          # on Apple Silicon instead of offering the "open anyway" path. Pair with
+          # entitlements.plist so the Node sidecar may JIT under Hardened Runtime.
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos') && '-' || '' }}
         with:
           projectPath: apps/desktop
