@@ -33,7 +33,7 @@ const hexoNodeModules = (() => {
     return runnerNodeModules;
   }
 })();
-const nodeModuleSearch = [hexoNodeModules, runnerNodeModules, workspaceNodeModules]
+const nodeModuleSearch = [workspaceNodeModules, hexoNodeModules, runnerNodeModules]
   .filter((value, index, all) => all.indexOf(value) === index)
   .join(delimiter);
 const generateWorkerPath = fileURLToPath(new URL("./generate-worker.mjs", import.meta.url));
@@ -507,7 +507,7 @@ async function linkNodeModules(siteDir: string): Promise<void> {
     // missing
   }
   try {
-    await symlink(hexoNodeModules, dest, "dir");
+    await symlink(workspaceNodeModules, dest, "dir");
   } catch {
     // already linked
   }
@@ -689,6 +689,7 @@ function workerPermissionArgs(
     hexoNodeModules,
     runnerNodeModules,
     workspaceNodeModules,
+    resolve(runnerNodeModules, "../../../node_modules"),
     tmpdir(),
   ]);
   for (const path of [themeSource, ...plugins.map((plugin) => plugin.path)]) {
