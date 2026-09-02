@@ -3,6 +3,9 @@
   "version": "0.1.7",
   "private": true,
   "type": "module",
+  "files": [
+    "runtime"
+  ],
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",

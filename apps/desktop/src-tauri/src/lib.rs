@@ -257,15 +257,25 @@ fn runtime_log_path(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn runtime_log_tail(path: &Path) -> Option<String> {
-    const MAX_LINES: usize = 12;
+    const MAX_LINES: usize = 16;
     let text = std::fs::read_to_string(path).ok()?;
     let trimmed = text.trim_end();
     if trimmed.is_empty() {
         return None;
     }
     let lines: Vec<&str> = trimmed.lines().collect();
+    let cause = lines.iter().rev().find(|line| {
+        line.contains("Cannot find package")
+            || line.contains("Cannot find module")
+            || line.contains("ERR_MODULE_NOT_FOUND")
+            || line.contains("ERR_UNSUPPORTED")
+    });
     let tail = lines[lines.len().saturating_sub(MAX_LINES)..].join("\n");
-    Some(format!("{tail}\n(full log: {})", path.display()))
+    let prefix = cause
+        .filter(|line| !tail.contains(*line))
+        .map(|line| format!("{line}\n"))
+        .unwrap_or_default();
+    Some(format!("{prefix}{tail}\n(full log: {})", path.display()))
 }
 
 fn spawn_runtime(mut child: Child, log_path: Option<PathBuf>, port: u16) -> Result<(), String> {
