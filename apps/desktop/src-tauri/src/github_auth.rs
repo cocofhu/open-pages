@@ -157,7 +157,7 @@ pub fn logout() -> Result<(), String> {
 
 fn github_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .user_agent("OpenPages-Desktop/0.1.7")
+        .user_agent("OpenPages-Desktop/0.1.8")
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())
