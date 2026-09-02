@@ -597,6 +597,10 @@ export function App() {
     setUser(await platform.logout());
   };
 
+  const refreshUser = useCallback(() => {
+    void platform.me().then(setUser);
+  }, []);
+
   const publish = async (opts: { owner?: string; repo: string; createRepo?: boolean }) => {
     if (!config) return;
     setPublishBusy(true);
@@ -834,6 +838,7 @@ export function App() {
           onBack={() => go("editor")}
           onClose={() => go("editor")}
           onLogin={login}
+          onSessionStale={refreshUser}
           onPreview={(opts) => void runPublishPreview(opts)}
           onPublish={(opts) => void publish(opts)}
         />

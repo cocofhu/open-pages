@@ -34,6 +34,7 @@ interface PublishPageProps {
   onBack: () => void;
   onClose: () => void;
   onLogin: () => void;
+  onSessionStale: () => void;
   onPreview: (opts: { repo: string; owner?: string }) => void;
   onPublish: (opts: { owner?: string; repo: string; createRepo?: boolean }) => void;
 }
@@ -82,6 +83,7 @@ export function PublishPage({
   onBack,
   onClose,
   onLogin,
+  onSessionStale,
   onPreview,
   onPublish,
 }: PublishPageProps) {
@@ -101,8 +103,13 @@ export function PublishPage({
         setRepos(data.repos);
         setRepo((current) => current || data.repos[0]?.name || "");
       })
-      .catch((err: Error) => setError(err.message));
-  }, [user?.login]);
+      .catch((err: Error) => {
+        setError(err.message);
+        // The header is a snapshot taken at startup. Re-read the session so it
+        // stops advertising a connection the calls underneath cannot make.
+        onSessionStale();
+      });
+  }, [user?.login, onSessionStale]);
 
   useEffect(() => {
     if (!user?.login || !repo.trim()) {

@@ -2436,7 +2436,7 @@ dependencies = [
 
 [[package]]
 name = "open-pages-desktop"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "keyring",
  "reqwest 0.12.28",

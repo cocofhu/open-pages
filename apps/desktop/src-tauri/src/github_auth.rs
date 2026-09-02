@@ -66,23 +66,23 @@ fn file_store_delete(account: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Writing to the keychain is not proof that reading it back will work. An
-/// ad-hoc signed bundle has no stable keychain identity, so macOS may store the
-/// item and then deny (or prompt for) the read. Dropping the file copy on a bare
-/// write therefore stranded the token: the session read kept working while the
-/// token came back empty, and every call died as "Not signed in".
+/// The file copy is the one that has to survive, so it is always written.
+///
+/// Reading the keychain back inside the same process proves only that *this*
+/// build may read it. An ad-hoc signed bundle gets no stable keychain identity,
+/// so the item an installer wrote is routinely unreadable to the next version,
+/// and deleting the file after a successful round-trip left the upgrade with no
+/// token at all — signed in according to the stored session, rejected by every
+/// call behind it.
 fn store_secret(account: &str, value: &str) -> Result<(), String> {
+    file_store_set(account, value)?;
     if let Ok(entry) = keyring::Entry::new(SERVICE, account) {
-        let readable = entry.set_password(value).is_ok()
-            && entry.get_password().is_ok_and(|stored| stored == value);
-        if readable {
-            let _ = file_store_delete(account);
-            return Ok(());
+        if entry.set_password(value).is_err() {
+            // Never leave a stale item behind to shadow the file copy on read.
+            let _ = entry.delete_credential();
         }
-        // A half-written entry would otherwise shadow the file copy on every read.
-        let _ = entry.delete_credential();
     }
-    file_store_set(account, value)
+    Ok(())
 }
 
 fn read_secret(account: &str) -> Option<String> {
@@ -124,7 +124,11 @@ pub fn github_enabled() -> bool {
     !client_id().is_empty()
 }
 
-pub const SIGNED_OUT: &str = "GitHub 登录信息读不出来了，请重新登录。";
+/// Nothing readable is stored on this machine.
+pub const SIGNED_OUT: &str = "本地没有读到 GitHub 登录凭据，请重新登录。";
+/// A token was read and sent, and the local service still refused it. Kept
+/// separate from `SIGNED_OUT` so a report says which half broke.
+pub const CREDENTIALS_REJECTED: &str = "本地生成服务没有收到登录凭据，请重新登录。";
 
 pub fn stored_token() -> Option<String> {
     read_secret(TOKEN_ACCOUNT)

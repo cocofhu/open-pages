@@ -453,7 +453,7 @@ async fn send_control(
     let value = response.json::<Value>().await.unwrap_or(Value::Null);
     if !status.is_success() {
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ControlError::answered(github_auth::SIGNED_OUT));
+            return Err(ControlError::answered(github_auth::CREDENTIALS_REJECTED));
         }
         let error = value
             .get("error")
