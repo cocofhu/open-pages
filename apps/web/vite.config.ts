@@ -2,10 +2,21 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+// The desktop shell serves this bundle from http://tauri.localhost on Windows,
+// which is a secure origin, so the PWA service worker registers and precaches
+// the app shell. Reinstalling replaces the executable but not that cache: the
+// old worker keeps answering navigations with the old index.html and its old
+// hashed assets, and the new version never shows up. macOS and Linux load the
+// same bundle over the tauri:// scheme, where no worker can register, which is
+// why only Windows sees it. A self-destroying worker unregisters itself and
+// drops its caches, so installs that already have one recover on next launch.
+const desktopShell = process.env.OPEN_PAGES_DESKTOP === "1";
+
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      selfDestroying: desktopShell,
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {

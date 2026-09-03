@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
@@ -202,6 +203,46 @@ async function handlePreview(req: IncomingMessage, res: ServerResponse): Promise
   res.end(file.body);
 }
 
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // A process we are not allowed to signal is still a process.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * The app force-kills this runtime on a clean exit, but a crash - or the
+ * Windows installer closing the app so it can replace files - leaves it behind.
+ * An orphan keeps the install directory locked, which is how a Windows
+ * reinstall ends up copying nothing, so shut down with whoever spawned us.
+ */
+function exitWithParent(): void {
+  const parent = Number(process.env.OPEN_PAGES_PARENT_PID);
+  if (!Number.isInteger(parent) || parent <= 1) return;
+  const timer = setInterval(() => {
+    if (processAlive(parent)) return;
+    clearInterval(timer);
+    // Hexo servers and npm installs run as children; on Windows they survive a
+    // bare exit and hold the same files this is trying to release. /T walks the
+    // tree down from this process, so this process has to still be here when
+    // the command runs - taskkill takes it down along with the children it
+    // finds. The timer is only for the case where that never happens.
+    if (process.platform === "win32") {
+      spawn("taskkill", ["/F", "/T", "/PID", String(process.pid)], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      }).unref();
+      setTimeout(() => process.exit(0), 2000);
+      return;
+    }
+    process.exit(0);
+  }, 1000);
+}
+
 function listen(port: number, handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer(handler);
@@ -230,6 +271,7 @@ try {
   });
   console.log(`open-pages desktop control listening on http://127.0.0.1:${boundControl}`);
   console.log(`open-pages desktop preview listening on http://127.0.0.1:${boundPreview}`);
+  exitWithParent();
 } catch (error) {
   console.error("open-pages desktop runtime failed to listen", error);
   process.exit(1);

@@ -394,6 +394,7 @@ fn start_runtime_dev() -> Result<(), String> {
         .env("OPEN_PAGES_CONTROL_PORT", "3848")
         .env("OPEN_PAGES_PREVIEW_PORT", "8788")
         .env("OPEN_PAGES_PREVIEW_ORIGIN", "http://127.0.0.1:8788")
+        .env("OPEN_PAGES_PARENT_PID", std::process::id().to_string())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
@@ -434,6 +435,9 @@ fn start_runtime_release(app: &AppHandle) -> Result<(), String> {
             format!("http://127.0.0.1:{preview}"),
         )
         .env("NODE_ENV", "production")
+        // A crash skips stop_runtime, and an orphaned sidecar keeps the install
+        // directory locked against the next installer run.
+        .env("OPEN_PAGES_PARENT_PID", std::process::id().to_string())
         .stdout(stdout)
         .stderr(stderr)
         .spawn()

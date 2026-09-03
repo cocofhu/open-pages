@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Open Pages",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "identifier": "com.openpages.desktop",
   "build": {
     "beforeDevCommand": "pnpm frontend:dev",
@@ -23,6 +23,7 @@
   },
   "bundle": {
     "active": true,
+    "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
     "resources": {
       "runtime-bundle/": "runtime-bundle/"
     },
@@ -36,6 +37,11 @@
     ],
     "macOS": {
       "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/hooks.nsh"
+      }
     }
   }
 }

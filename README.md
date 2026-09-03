@@ -85,11 +85,16 @@ pnpm test:github-auth
 
 | 平台 | Runner | 产物 |
 |------|--------|------|
-| Windows x64 | `windows-latest` | `.msi` / `.exe` |
+| Windows x64 | `windows-latest` | `.exe`（NSIS） |
 | macOS Apple Silicon | `macos-latest` (`aarch64-apple-darwin`) | `.dmg` / `.app` |
 | macOS Intel | `macos-latest` (`x86_64-apple-darwin`) | `.dmg` / `.app` |
 
 构建产物会上传为 GitHub Actions Artifacts（保留 14 天）。推送 `v*` 标签时还会自动创建 Release 并附上安装包。
+
+Windows 只出 NSIS 的 `.exe`（`bundle.targets` 里没有 `msi`）：NSIS 装到当前用户目录、
+MSI 装到 `Program Files`，两个装在一起时新版本进的是另一个目录，用户从开始菜单点开的
+往往还是旧的那份——看起来就是「装了但没更新」。NSIS 认识已有的 MSI 安装并会先卸掉它，
+所以从早期 `.msi` 升级也走同一个 `.exe`。
 
 **Release 内置 GitHub 登录**：在仓库 **Settings → Secrets and variables → Actions → Variables** 添加 `OPEN_PAGES_GITHUB_CLIENT_ID`（OAuth App 的 Client ID；GitHub 禁止变量名以 `GITHUB_` 开头，故用此前缀）。打 `v*` 标签发布时，CI 会在编译阶段把它写进安装包，用户安装后可直接登录，无需再配环境变量。
 
@@ -131,6 +136,34 @@ ad-hoc 签名会打开 Hardened Runtime。内置的 Node sidecar 依赖 V8 JIT�
 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_ID`、
 `APPLE_PASSWORD`、`APPLE_TEAM_ID`，`tauri-action` 会自动完成签名与公证。免费开发者账号只能
 签 Apple Development 证书，无法用于分发。
+
+### 升级 Windows 版
+
+直接运行新版 `.exe` 覆盖安装即可，不用先卸载。
+
+0.1.16 及更早的版本在 Windows 上装了新版界面还是旧的，根源是 PWA 的 service worker：
+Windows 上 Tauri 用 `http://tauri.localhost` 提供前端，这是安全源，于是
+`registerSW()` 真的注册成功并把整个 app shell（`index.html` 和带 hash 的 JS/CSS）
+预缓存进了 WebView2 的 profile。覆盖安装换掉的是 exe，动不了那份缓存，旧 worker 会继续
+用旧的 `index.html` 应答导航，指向的又是它自己缓存的旧资源。macOS 和 Linux 加载同一份产物
+走的是 `tauri://` 自定义协议，worker 根本注册不上，所以只有 Windows 会中。
+
+桌面产物因此走 `selfDestroying`：`scripts/tauri-web.mjs` 会带上 `OPEN_PAGES_DESKTOP=1`，
+[`apps/web/vite.config.ts`](apps/web/vite.config.ts) 据此生成一个只负责注销自己、清空
+`caches` 并让页面重载的 `sw.js`。Web 部署那份产物不受影响，照旧预缓存。已经装了旧版的
+机器在下次启动时自动恢复，安装器还会顺手删掉 profile 里的 `Service Worker` 目录，连那次
+重载都省了。
+
+同一次安装还有另一个坑：生成工作跑在装到安装目录里的 Node sidecar 上，关掉窗口不会带走
+它，NSIS 自带的 CheckIfAppIsRunning 也只认主程序。强杀主程序后 sidecar 变成孤儿进程继续
+占着 `node.exe`，Windows 不让覆盖被进程映射的可执行文件，安装就停在「Error opening file
+for writing」——点 Abort 等于什么都没装，点 Ignore 会留下半新半旧的一份。两边都补上了：
+
+- [`apps/desktop/src-tauri/windows/hooks.nsh`](apps/desktop/src-tauri/windows/hooks.nsh)
+  在复制文件前按安装路径结束残留进程（不碰用户自己的 node）、清掉整棵
+  `runtime-bundle`（卸载器只删自己那一版记录过的文件），以及 WebView2 的缓存目录。
+- sidecar 收到 `OPEN_PAGES_PARENT_PID`，父进程一没了就连着自己的子进程一起退出，不再留
+  孤儿锁住安装目录。
 
 ## Web 开发（legacy Auth）
 

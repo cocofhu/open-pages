@@ -130,6 +130,11 @@ jobs:
           releaseName: Open Pages ${{ github.ref_name }}
           generateReleaseNotes: true
           releaseBody: |
+            ### Windows 安装
+
+            下载 `.exe` 直接运行，装过旧版也不用先卸载：安装程序会先结束正在运行的
+            Open Pages 和它的 Node 后台进程，再覆盖安装。
+
             ### macOS 安装
 
             推荐用命令行安装，自动选架构，没有安全提示：
