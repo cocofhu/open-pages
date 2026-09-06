@@ -19,7 +19,11 @@
   ; plain "node.exe" older versions shipped) without touching Node processes
   ; the user started themselves. The length guard keeps a drive-root install
   ; from matching every process on the machine.
-  nsExec::Exec `powershell -NoProfile -NonInteractive -Command "$$dir = '$INSTDIR'; if ($$dir.Length -gt 3) { Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$dir, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
+  ;
+  ; Skip uninstall.exe: Tauri's upgrade path launches the old uninstaller in
+  ; place (`_?=$INSTDIR`) instead of copying it to %TEMP%. Killing it here
+  ; makes ExecWait fail and the new installer shows "Unable to uninstall!".
+  nsExec::Exec `powershell -NoProfile -NonInteractive -Command "$$dir = '$INSTDIR'; if ($$dir.Length -gt 3) { Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$dir, [System.StringComparison]::OrdinalIgnoreCase) -and $$_.Name -ne 'uninstall.exe' } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
   Pop $0
 
   ; File handles outlive the process by a moment.
