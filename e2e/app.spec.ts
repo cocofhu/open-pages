@@ -376,6 +376,9 @@ graph LR
     await expect(page).toHaveURL(/#\/publish\/github/);
     await expect(page.getByTestId("publish-page")).toContainText("GitHub Pages");
     await expect(page.getByTestId("publish-login")).toBeVisible();
+    // Bound-only publish: no create toggle / empty-list copy on this page.
+    await expect(page.getByTestId("publish-create-toggle")).toHaveCount(0);
+    await expect(page.getByTestId("publish-page")).not.toContainText("没有可用仓库");
     await expect(page.getByTestId("theme-studio")).toHaveCount(0);
     await page.getByTestId("publish-back").click();
     await expect(page.getByTestId("publish-page")).toHaveCount(0);
