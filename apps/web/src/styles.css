@@ -3403,6 +3403,11 @@ li + li > .outline-item.level-1 {
   border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
 
+.publish-foot-split {
+  justify-content: space-between;
+  align-items: center;
+}
+
 .publish-foot .ghost {
   border: 1px solid var(--line);
   color: var(--ink);

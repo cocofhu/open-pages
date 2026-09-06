@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { GitHubMark } from "./GitHubMark";
 import { ComboSelect } from "./ComboSelect";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { type AuthUser, type GithubRepo } from "../lib/api";
 import { platform } from "../lib/platform";
+import { switchRepoConfirmCopy } from "../lib/repo-onboarding-copy";
 import { siteId } from "../lib/vfs";
 
 function bindableRepos(repos: GithubRepo[]): GithubRepo[] {
@@ -15,14 +17,24 @@ interface RepoOnboardingProps {
   onLogin: () => void;
   onSessionStale: () => void;
   onPick: (opts: { repo: string; createRepo?: boolean }) => void;
+  /** When set, user is already bound: show return + confirm before sync. */
+  onReturn?: () => void;
 }
 
-export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }: RepoOnboardingProps) {
+export function RepoOnboarding({
+  user,
+  device,
+  onLogin,
+  onSessionStale,
+  onPick,
+  onReturn,
+}: RepoOnboardingProps) {
   const [repos, setRepos] = useState<GithubRepo[]>([]);
   const [repo, setRepo] = useState("");
   const [createNew, setCreateNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!user?.login) return;
@@ -53,6 +65,22 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
     [repos],
   );
 
+  const confirmCopy = switchRepoConfirmCopy({
+    owner: owner || "user",
+    repo: repo.trim() || "repo",
+    createRepo: createNew,
+  });
+
+  const requestSync = () => {
+    const name = repo.trim();
+    if (!name) return;
+    if (onReturn) {
+      setConfirmOpen(true);
+      return;
+    }
+    onPick({ repo: name, createRepo: createNew });
+  };
+
   return (
     <div className="boot-screen" data-testid="repo-onboarding">
       <div className="publish-card onboarding-card">
@@ -60,8 +88,9 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
           <p className="publish-kicker">Open Pages</p>
           <h2>选择一个仓库</h2>
           <p className="hint">
-            登录后选定仓库，会同步配置、文章，并恢复主题和插件。原始文件会备份到 source/origin。
-            列表只显示空仓库和你用 Open Pages 发布过的仓库。
+            {onReturn
+              ? "切换后本地会全部按新仓库来。还没发布的改动会丢掉。"
+              : "登录后选定仓库，会同步配置、文章，并恢复主题和插件。原始文件会备份到 source/origin。列表只显示空仓库和你用 Open Pages 发布过的仓库。"}
           </p>
         </header>
         {!user?.login ? (
@@ -175,12 +204,23 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
               )}
               {error ? <p className="hint publish-error">{error}</p> : null}
             </section>
-            <footer className="publish-foot">
+            <footer className={onReturn ? "publish-foot publish-foot-split" : "publish-foot"}>
+              {onReturn ? (
+                <button
+                  type="button"
+                  className="ghost"
+                  data-testid="onboard-return"
+                  onClick={onReturn}
+                >
+                  返回当前站点
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="primary"
+                data-testid="onboard-sync"
                 disabled={!repo.trim() || loading}
-                onClick={() => onPick({ repo: repo.trim(), createRepo: createNew })}
+                onClick={requestSync}
               >
                 同步并打开
               </button>
@@ -188,6 +228,18 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title={confirmCopy.title}
+        message={confirmCopy.message}
+        confirmLabel={confirmCopy.confirmLabel}
+        danger
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onPick({ repo: repo.trim(), createRepo: createNew });
+        }}
+      />
     </div>
   );
 }
