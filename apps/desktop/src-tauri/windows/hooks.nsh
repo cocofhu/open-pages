@@ -57,3 +57,25 @@
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro OpenPagesStopProcesses
 !macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  ; A normal uninstall (not /UPDATE) must drop user-installed themes and
+  ; plugins. They live under the profile, not $INSTDIR, so Tauri's file list
+  ; never sees them and they came back after a reinstall.
+  ${If} $UpdateMode <> 1
+    RMDir /r "$PROFILE\.open-pages\desktop\.addon-store"
+    RMDir "$PROFILE\.open-pages\desktop"
+
+    ; Stale WebView2 caches keep serving the previous app shell. IndexedDB and
+    ; the site tree stay unless the user asked to delete app data.
+    RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Cache"
+    RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Code Cache"
+    RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Service Worker"
+
+    ${If} $DeleteAppDataCheckboxState = 1
+      RMDir /r "$PROFILE\.open-pages"
+    ${EndIf}
+
+    RMDir /r "$INSTDIR"
+  ${EndIf}
+!macroend
