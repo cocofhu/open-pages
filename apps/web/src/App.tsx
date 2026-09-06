@@ -116,6 +116,7 @@ export function App() {
   const routeRef = useRef(route);
   const writeChainRef = useRef(Promise.resolve());
   const bindGenRef = useRef(0);
+  const lastBindRef = useRef<{ repo: string; createRepo?: boolean; inCard?: boolean } | null>(null);
   const editingPathRef = useRef<string | null>(null);
   const sourceEditorRef = useRef<SourceEditorHandle>(null);
   routeRef.current = route;
@@ -553,11 +554,16 @@ export function App() {
       setToast({ kind: "error", text: "预览需要联网，由服务端运行 hexo generate。" });
       return;
     }
+    if (!activePath?.endsWith(".md")) {
+      setToast({ kind: "error", text: "请先打开一篇文章、页面或草稿再预览。" });
+      return;
+    }
+    const sourcePath = activePath;
     previewReloadRef.current = () => void runPreview();
     const request = ++previewRequestRef.current;
     setPreview({
-      title: "Hexo 预览",
-      hint: "用当前草稿渲染，不写入本地",
+      title: "文章预览",
+      hint: "当前文档的 Hexo 成品页",
       url: null,
       error: null,
     });
@@ -565,11 +571,11 @@ export function App() {
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
-      const result = await platform.preview(siteId(), filesSnapshot, config);
+      const result = await platform.preview(siteId(), filesSnapshot, config, sourcePath);
       if (request !== previewRequestRef.current) return;
       const url = `${result.url}?t=${Date.now()}`;
       setPreview((current) => (current ? { ...current, url, error: null } : current));
-      setToast({ kind: "ok", text: `Hexo 预览已就绪（${result.elapsedMs}ms）` });
+      setToast({ kind: "ok", text: `文章预览已就绪（${result.elapsedMs}ms）` });
     } catch (error) {
       if (request !== previewRequestRef.current) return;
       const message = errorMessage(error, "预览失败");
@@ -596,8 +602,8 @@ export function App() {
     previewReloadRef.current = () => void runPublishPreview();
     const request = ++previewRequestRef.current;
     setPreview({
-      title: "发布预览",
-      hint: "路径与 GitHub Pages 一致",
+      title: "主页预览",
+      hint: "站点主页 · 路径与 GitHub Pages 一致",
       url: null,
       error: null,
     });
@@ -605,13 +611,14 @@ export function App() {
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
+      // Publish preview must open the site home — never pass sourcePath.
       const result = await platform.preview(siteId(), filesSnapshot, publishConfig);
       if (request !== previewRequestRef.current) return;
       const url = `${result.url}?t=${Date.now()}`;
       setPreview((current) => (current ? { ...current, url, error: null } : current));
       setToast({
         kind: "ok",
-        text: `发布预览已就绪（${result.elapsedMs}ms），路径与 GitHub Pages 一致`,
+        text: `主页预览已就绪（${result.elapsedMs}ms），路径与 GitHub Pages 一致`,
       });
     } catch (error) {
       if (request !== previewRequestRef.current) return;
@@ -628,22 +635,35 @@ export function App() {
     setBoot({ phase: "pick-repo", label: "", percent: 0 });
   };
 
-  const bindRepo = async (opts: { repo: string; createRepo?: boolean }) => {
+  const bindRepo = async (opts: { repo: string; createRepo?: boolean; inCard?: boolean }) => {
     const owner = user?.login;
     if (!owner) {
       setBoot({ phase: "pick-repo", label: "", percent: 0, error: "请先登录 GitHub" });
       return;
     }
+    lastBindRef.current = opts;
     const gen = ++bindGenRef.current;
     const still = () => gen === bindGenRef.current;
-    setBoot({ phase: "loading", label: "正在同步仓库…", percent: 8 });
+    // From RepoOnboarding keep pick-repo so the card stays mounted (plan g1.1).
+    // Already-bound BootScreen retries still use the fullscreen loading phase.
+    const inCard = Boolean(opts.inCard);
+    const setProgress = (label: string, percent: number, error?: string) => {
+      if (!still()) return;
+      setBoot({
+        phase: inCard ? "pick-repo" : "loading",
+        label,
+        percent,
+        error,
+      });
+    };
+    setProgress(opts.createRepo ? "正在 GitHub 上新建仓库…" : "正在同步仓库…", 8);
     try {
       if (opts.createRepo) {
         const created = await platform.createRepo(opts.repo);
         if (!still()) return;
         // New repo must open a blank site: never carry over the previous local posts.
         const result = await resetBlankSite(created.owner, created.repo, created.pagesUrl, (progress) => {
-          if (still()) setBoot({ phase: "loading", label: progress.label, percent: progress.percent });
+          setProgress(progress.label, progress.percent);
         });
         if (!still()) return;
         await saveConfig(result.config, result.binding);
@@ -655,15 +675,15 @@ export function App() {
         setBoot({ phase: "ready", label: "", percent: 100 });
         return;
       }
-      setBoot({ phase: "loading", label: "正在检查仓库…", percent: 12 });
+      setProgress("正在检查仓库…", 12);
       const check = await platform.checkRepoForPublish(owner, opts.repo, siteId());
       if (!still()) return;
       if (!check.eligible) throw new Error(check.message);
-      setBoot({ phase: "loading", label: "正在拉取仓库…", percent: 18 });
+      setProgress("正在拉取仓库…", 18);
       const snapshot = await platform.downloadRepoSnapshot(owner, opts.repo);
       if (!still()) return;
       const result = await applyRepoSnapshot(snapshot, owner, opts.repo, (progress) => {
-        if (still()) setBoot({ phase: "loading", label: progress.label, percent: progress.percent });
+        setProgress(progress.label, progress.percent);
       });
       if (!still()) return;
       await saveConfig(result.config, result.binding);
@@ -679,12 +699,7 @@ export function App() {
       if (result.warning) setToast({ kind: "error", text: result.warning });
     } catch (error) {
       if (!still()) return;
-      setBoot({
-        phase: "loading",
-        label: "正在同步仓库…",
-        percent: 0,
-        error: errorMessage(error, "同步失败"),
-      });
+      setProgress("正在同步仓库…", 0, errorMessage(error, "同步失败"));
     }
   };
 
@@ -779,7 +794,16 @@ export function App() {
             device={devicePrompt}
             onLogin={login}
             onSessionStale={refreshUser}
-            onPick={(opts) => void bindRepo(opts)}
+            busy={Boolean(boot.label) && !boot.error}
+            progressLabel={boot.label}
+            progressPercent={boot.percent}
+            bindError={boot.error}
+            onCancel={cancelBind}
+            onRetry={() => {
+              const last = lastBindRef.current;
+              if (last) void bindRepo({ ...last, inCard: true });
+            }}
+            onPick={(opts) => void bindRepo({ ...opts, inCard: true })}
             onReturn={
               github
                 ? () => {
