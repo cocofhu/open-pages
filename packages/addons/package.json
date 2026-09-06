@@ -14,7 +14,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@open-pages/shared": "workspace:*"
+    "@open-pages/shared": "workspace:*",
+    "tar": "^7.5.22"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",

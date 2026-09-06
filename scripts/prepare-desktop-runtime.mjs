@@ -148,7 +148,7 @@ async function visit(dir, onPath) {
 
 async function assertRuntimeImports(bundleDir) {
   execSync(
-    `node --input-type=module -e "await import('@open-pages/publish'); await import('@open-pages/github'); await import('@open-pages/hexo-runner'); await import('@open-pages/shared'); console.log('runtime imports ok')"`,
+    `node --input-type=module -e "await import('@open-pages/publish'); await import('@open-pages/github'); await import('@open-pages/hexo-runner'); await import('@open-pages/addons'); await import('@open-pages/shared'); console.log('runtime imports ok')"`,
     { cwd: bundleDir, stdio: "inherit" },
   );
 }

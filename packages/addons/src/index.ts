@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { createRequire } from "node:module";
 import {
+  access,
+  constants,
   lstat,
   mkdir,
   readFile,
@@ -11,6 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
+import { x as extractTar } from "tar";
 import {
   BUILTIN_ADDONS,
   isSafeWorkspaceId,
@@ -179,21 +183,34 @@ async function writeIndex(owner: string, index: AddonIndex): Promise<void> {
     try {
       await writeFile(join(staging, "package.json"), '{"private":true}\n');
       report("download", "正在下载依赖", DOWNLOAD_START);
-      await runCommand(
-        "npm",
-        [
-          "install",
-          "--ignore-scripts",
-          "--no-audit",
-          "--no-fund",
-          "--no-package-lock",
-          "--save-exact",
-          "--loglevel=http",
-          normalized.spec,
-        ],
-        staging,
-        (fetched) => report("download", `正在下载依赖（${fetched} 个包）`, downloadPercent(fetched)),
-      );
+      const npm = await findNpm();
+      if (npm) {
+        try {
+          await runCommand(
+            npm,
+            [
+              "install",
+              "--ignore-scripts",
+              "--no-audit",
+              "--no-fund",
+              "--no-package-lock",
+              "--save-exact",
+              "--loglevel=http",
+              normalized.spec,
+            ],
+            staging,
+            (fetched) =>
+              report("download", `正在下载依赖（${fetched} 个包）`, downloadPercent(fetched)),
+          );
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          const message = error instanceof Error ? error.message : "";
+          if (code !== "ENOENT" && !/ENOENT/.test(message)) throw error;
+          await installFromTarball(normalized, staging, report);
+        }
+      } else {
+        await installFromTarball(normalized, staging, report);
+      }
       report("verify", "校验安装内容", 74);
       await assertInstallTree(staging);
       report("inspect", "读取扩展信息", 84);
@@ -563,6 +580,135 @@ async function assertInstallTree(root: string): Promise<void> {
 /** npm never reports a total, so downloads approach the ceiling instead of reaching it. */
 function downloadPercent(fetched: number): number {
   return DOWNLOAD_START + (DOWNLOAD_END - DOWNLOAD_START) * (1 - Math.exp(-fetched / 18));
+}
+
+type NormalizedSource = ReturnType<typeof normalizeSource>;
+
+async function existsPath(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findNpm(): Promise<string | null> {
+  if (process.env.OPEN_PAGES_FORCE_TARBALL === "1") return null;
+  const names = process.platform === "win32" ? ["npm.cmd", "npm.exe"] : ["npm"];
+  const dirs = [
+    dirname(process.execPath),
+    ...(process.env.PATH ?? "").split(delimiter),
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/usr/bin",
+    process.env.ProgramFiles ? join(process.env.ProgramFiles, "nodejs") : "",
+    process.env["ProgramFiles(x86)"] ? join(process.env["ProgramFiles(x86)"], "nodejs") : "",
+    process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Programs", "nodejs") : "",
+  ].filter(Boolean);
+  for (const dir of dirs) {
+    for (const name of names) {
+      const candidate = join(dir, name);
+      if (await existsPath(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+async function tarballUrl(source: NormalizedSource): Promise<string> {
+  if (source.source.type === "github") {
+    return `https://codeload.github.com/${source.source.repo}/tar.gz/${source.source.ref ?? "HEAD"}`;
+  }
+  const pkg = source.source.packageName;
+  const encoded = pkg.startsWith("@") ? pkg.replace("/", "%2F") : pkg;
+  const spec = source.source.version === "latest" ? "latest" : source.source.version;
+  const response = await fetch(`https://registry.npmjs.org/${encoded}/${spec}`, {
+    headers: { "user-agent": "open-pages-addon-installer", accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Package not found: ${pkg}`);
+  const json = (await response.json()) as { dist?: { tarball?: string } };
+  if (typeof json.dist?.tarball !== "string") throw new Error(`Package tarball missing: ${pkg}`);
+  return json.dist.tarball;
+}
+
+async function downloadFile(
+  url: string,
+  dest: string,
+  onPercent?: (percent: number) => void,
+): Promise<void> {
+  const response = await fetch(url, {
+    headers: { "user-agent": "open-pages-addon-installer", accept: "application/octet-stream" },
+    redirect: "follow",
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Download failed (${response.status || "no body"})`);
+  }
+  const total = Number(response.headers.get("content-length") ?? 0);
+  const file = createWriteStream(dest);
+  const reader = response.body.getReader();
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      await new Promise<void>((resolveWrite, rejectWrite) => {
+        file.write(value, (error) => (error ? rejectWrite(error) : resolveWrite()));
+      });
+      if (total && onPercent) onPercent(received / total);
+    }
+  } finally {
+    await new Promise<void>((resolveClose, rejectClose) => {
+      file.end((error?: Error | null) => (error ? rejectClose(error) : resolveClose()));
+    });
+  }
+}
+
+type StageReport = (stage: InstallProgress["stage"], label: string, percent: number) => void;
+
+async function installFromTarball(
+  normalized: NormalizedSource,
+  staging: string,
+  report: StageReport,
+): Promise<void> {
+  const archive = join(staging, "package.tgz");
+  const extractDir = join(staging, ".extract");
+  await mkdir(extractDir, { recursive: true });
+  report("download", "正在下载扩展", DOWNLOAD_START);
+  const url = await tarballUrl(normalized);
+  await downloadFile(url, archive, (percent) =>
+    report(
+      "download",
+      "正在下载扩展",
+      DOWNLOAD_START + (DOWNLOAD_END - DOWNLOAD_START) * percent,
+    ),
+  );
+  report("download", "正在解压扩展", DOWNLOAD_END);
+  await extractTar({ file: archive, cwd: extractDir, strip: 1 });
+  await rm(archive, { force: true });
+  const pkg = JSON.parse(await readFile(join(extractDir, "package.json"), "utf8")) as {
+    name?: string;
+    version?: string;
+    dependencies?: Record<string, string>;
+  };
+  const packageName = pkg.name;
+  if (typeof packageName !== "string" || !/^hexo-|^@[^/]+\/hexo-/.test(packageName)) {
+    throw new Error("Installed package is not a Hexo theme or plugin");
+  }
+  if (Object.keys(pkg.dependencies ?? {}).length) {
+    throw new Error("这个扩展还依赖其他包。请安装 Node.js（含 npm）后再试，或换一个无额外依赖的主题。");
+  }
+  const dest = join(staging, "node_modules", packageName);
+  await mkdir(dirname(dest), { recursive: true });
+  await rm(dest, { recursive: true, force: true });
+  await rename(extractDir, dest);
+  await writeFile(
+    join(staging, "package.json"),
+    `${JSON.stringify({
+      private: true,
+      dependencies: { [packageName]: pkg.version ?? "0.0.0" },
+    })}\n`,
+  );
 }
 
 async function runCommand(
