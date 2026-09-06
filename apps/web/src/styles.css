@@ -2242,7 +2242,8 @@ li + li > .outline-item.level-1 {
 .theme-pick-card {
   position: relative;
   text-align: left;
-  padding: 12px 12px 14px;
+  /* Extra right padding keeps titles clear of the using/ellipsis cluster. */
+  padding: 12px 40px 14px 12px;
   border-radius: 14px;
   background: #fff;
   border: 1px solid var(--line);
@@ -2255,11 +2256,108 @@ li + li > .outline-item.level-1 {
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
-.theme-card-actions {
+.theme-pick-cluster {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  pointer-events: none;
+}
+
+.theme-pick-cluster > * {
+  pointer-events: auto;
+}
+
+.theme-pick-using {
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--accent-ink);
+  white-space: nowrap;
+}
+
+.theme-pick-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.theme-pick-more:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 6%, var(--paper));
+  color: var(--ink);
+}
+
+.theme-pick-more:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.theme-pick-more .ui-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.theme-pick-menu {
+  position: fixed;
+  z-index: 40;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 2px;
+}
+
+.theme-pick-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-pick-menu-item:hover:not(:disabled),
+.theme-pick-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--ink) 6%, var(--paper));
+  outline: none;
+}
+
+.theme-pick-menu-item.danger {
+  color: color-mix(in srgb, #9a2f2f 88%, var(--ink));
+}
+
+.theme-pick-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.theme-pick-menu-item .ui-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .addon-action,
@@ -2321,7 +2419,6 @@ li + li > .outline-item.level-1 {
 
 .theme-pick-card small {
   margin-top: auto;
-  padding-right: 30px;
   color: color-mix(in srgb, var(--muted) 78%, transparent);
   font-size: 10px;
 }
@@ -2475,20 +2572,6 @@ li + li > .outline-item.level-1 {
 
 .plugin-config h4 {
   margin: 0;
-}
-
-.theme-pick-card em {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  font-style: normal;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--ink);
-  color: var(--accent-ink);
 }
 
 .theme-pick-card:hover {
@@ -3052,6 +3135,18 @@ li + li > .outline-item.level-1 {
 
 .publish-repo-group {
   margin: 0;
+}
+
+.publish-bound-repo {
+  margin: 6px 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.publish-unbound {
+  margin-top: 4px;
 }
 
 .publish-repo-group .studio-toggle-row {

@@ -45,6 +45,7 @@ import { Toast, type ToastState } from "./components/Toast";
 import { TopBar, type EditorMode } from "./components/TopBar";
 import type { AuthUser } from "./lib/api";
 import { applyRepoSnapshot } from "./lib/repo-sync";
+import { bindingAfterPublish, resolvePublishTarget } from "./lib/publish-target";
 import { isTauri, platform } from "./lib/platform";
 import { type OutlineHeading } from "./lib/outline";
 import {
@@ -585,19 +586,20 @@ export function App() {
     }
   };
 
-  const runPublishPreview = async (opts: { repo: string; owner?: string }) => {
-    if (!config || !user?.login || !opts.repo) return;
+  const runPublishPreview = async () => {
+    const target = resolvePublishTarget(github);
+    if (!config || !user?.login || !target) return;
     if (!online && !isTauri()) {
       setToast({ kind: "error", text: "预览需要联网，由服务端运行 hexo generate。" });
       return;
     }
-    const owner = opts.owner ?? user.login;
+    const { owner, repo } = target;
     const publishConfig = parseSiteConfig({
       ...config,
-      url: pagesUrl(owner, opts.repo).replace(/\/$/, ""),
-      root: pagesRoot(owner, opts.repo),
+      url: pagesUrl(owner, repo).replace(/\/$/, ""),
+      root: pagesRoot(owner, repo),
     });
-    previewReloadRef.current = () => void runPublishPreview(opts);
+    previewReloadRef.current = () => void runPublishPreview();
     const request = ++previewRequestRef.current;
     setPreview({
       title: "主页预览",
@@ -731,25 +733,23 @@ export function App() {
     void platform.me().then(setUser);
   }, []);
 
-  const publish = async (opts: { owner?: string; repo: string; createRepo?: boolean }) => {
-    if (!config) return;
+  const publish = async () => {
+    const target = resolvePublishTarget(github);
+    if (!config || !target) return;
     setPublishBusy(true);
     setPublishStatus("正在发布中…");
     setPublishUrl(null);
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
+      // Bound publish only: never createRepo; never override binding from caller opts.
       const result = await platform.publish(siteId(), {
         files: filesSnapshot,
         config,
-        ...opts,
+        owner: target.owner,
+        repo: target.repo,
       });
-      const binding = {
-        owner: result.owner,
-        repo: result.repo,
-        defaultBranch: "main",
-        pagesUrl: result.url,
-      };
+      const binding = bindingAfterPublish(github, result);
       setGithub(binding);
       await saveConfig(config, binding);
       setPublishStatus("");
@@ -1014,7 +1014,8 @@ export function App() {
           user={user}
           siteId={siteId()}
           theme={config.theme}
-          defaultRepo={github?.repo}
+          boundOwner={github?.owner}
+          boundRepo={github?.repo}
           busy={publishBusy}
           previewing={previewing}
           online={online}
@@ -1024,8 +1025,8 @@ export function App() {
           onClose={() => go("editor")}
           onLogin={login}
           onSessionStale={refreshUser}
-          onPreview={(opts) => void runPublishPreview(opts)}
-          onPublish={(opts) => void publish(opts)}
+          onPreview={() => void runPublishPreview()}
+          onPublish={() => void publish()}
         />
       )}
       <NewDocDialog

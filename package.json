@@ -18,6 +18,7 @@
     "test:theme-settings": "pnpm --filter @open-pages/api exec tsx ../../verify-theme-settings.ts",
     "test:addons": "pnpm --filter @open-pages/api exec tsx ../../verify-addons.ts",
     "test:preview-visible": "pnpm --filter @open-pages/api exec tsx ../../verify-preview-visible.ts",
+    "test:publish-target": "pnpm --filter @open-pages/web test:publish-target",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e-core": "playwright test --config e2e/playwright.config.ts app.spec.ts",
     "test:e2e-themes": "playwright test --config e2e/playwright.config.ts themes.spec.ts"
