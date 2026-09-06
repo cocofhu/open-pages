@@ -9,15 +9,10 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useEffect, useMemo, useState } from "react";
-import {
-  pagesUrl,
-  publishRepoCheckMessage,
-  THEME_META,
-  type PublishRepoCheck,
-  type ThemeId,
-} from "@open-pages/shared";
+import { pagesUrl, THEME_META, type PublishRepoCheck, type ThemeId } from "@open-pages/shared";
 import { type AuthUser, type GithubRepo } from "../lib/api";
 import { isTauri, platform } from "../lib/platform";
+import { assessNewRepoName } from "../lib/repo-name";
 import { ComboSelect } from "./ComboSelect";
 import { GitHubMark } from "./GitHubMark";
 import { StudioBar } from "./StudioBar";
@@ -38,37 +33,6 @@ interface PublishPageProps {
   onSessionStale: () => void;
   onPreview: (opts: { repo: string; owner?: string }) => void;
   onPublish: (opts: { owner?: string; repo: string; createRepo?: boolean }) => void;
-}
-
-const NEW_REPO_CHECK: PublishRepoCheck = {
-  eligible: true,
-  reason: "new",
-  message: publishRepoCheckMessage("new"),
-};
-
-function assessNewRepoName(name: string, repos: GithubRepo[]): PublishRepoCheck {
-  const trimmed = name.trim();
-  if (
-    !/^[A-Za-z0-9._-]{1,100}$/.test(trimmed) ||
-    trimmed.includes("..") ||
-    trimmed.startsWith(".") ||
-    trimmed.endsWith(".")
-  ) {
-    return {
-      eligible: false,
-      reason: "foreign",
-      message: "仓库名只能包含字母、数字、点、下划线和短横线，且不能以点开头或结尾。",
-    };
-  }
-  const existing = repos.find((item) => item.name.toLowerCase() === trimmed.toLowerCase());
-  if (existing) {
-    return {
-      eligible: false,
-      reason: "foreign",
-      message: `仓库「${existing.fullName}」已存在。请关闭「创建新仓库」后选择它，或换一个名字。`,
-    };
-  }
-  return NEW_REPO_CHECK;
 }
 
 export function PublishPage({

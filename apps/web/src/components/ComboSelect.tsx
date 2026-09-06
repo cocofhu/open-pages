@@ -9,6 +9,7 @@ interface ComboSelectProps {
   options: SiteOption[];
   testId: string;
   searchPlaceholder?: string;
+  disabled?: boolean;
   onChange: (value: string) => void;
 }
 
@@ -18,6 +19,7 @@ export function ComboSelect({
   options,
   testId,
   searchPlaceholder = "搜索…",
+  disabled = false,
   onChange,
 }: ComboSelectProps) {
   const [open, setOpen] = useState(false);
@@ -53,6 +55,10 @@ export function ComboSelect({
       maxHeight: height,
     });
   };
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   useEffect(() => {
     if (!open) return;
@@ -112,7 +118,11 @@ export function ComboSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}
-        onClick={() => setOpen((current) => !current)}
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((current) => !current);
+        }}
       >
         <strong>{(selected?.label ?? value) || "选择…"}</strong>
         {selected?.hint ? <em>{selected.hint}</em> : null}
