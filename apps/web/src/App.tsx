@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applySiteConfigToYaml,
   BUILTIN_ADDONS,
-  DEFAULT_SITE_CONFIG,
   defaultFrontMatter,
   defaultHexoConfigYaml,
   defaultSettingsForFields,
@@ -43,7 +42,7 @@ import { SettingsPage, type SettingsTab } from "./components/SettingsPage";
 import { Toast, type ToastState } from "./components/Toast";
 import { TopBar, type EditorMode } from "./components/TopBar";
 import type { AuthUser } from "./lib/api";
-import { applyRepoSnapshot } from "./lib/repo-sync";
+import { applyRepoSnapshot, resetBlankSite } from "./lib/repo-sync";
 import { bindingAfterPublish, resolvePublishTarget } from "./lib/publish-target";
 import { isTauri, platform } from "./lib/platform";
 import { type OutlineHeading } from "./lib/outline";
@@ -676,20 +675,16 @@ export function App() {
       if (opts.createRepo) {
         const created = await platform.createRepo(opts.repo);
         if (!still()) return;
-        setProgress("正在打开空白站点…", 55);
-        const nextConfig = config ?? { ...DEFAULT_SITE_CONFIG };
-        const binding: GithubBinding = {
-          owner: created.owner,
-          repo: created.repo,
-          defaultBranch: "main",
-          pagesUrl: created.pagesUrl,
-          ...(typeof github?.customDomain === "string" ? { customDomain: github.customDomain } : {}),
-        };
-        await saveConfig(nextConfig, binding);
+        // New repo must open a blank site: never carry over the previous local posts.
+        const result = await resetBlankSite(created.owner, created.repo, created.pagesUrl, (progress) => {
+          setProgress(progress.label, progress.percent);
+        });
         if (!still()) return;
-        setConfig(nextConfig);
-        setGithub(binding);
-        await finishOpen(nextConfig);
+        await saveConfig(result.config, result.binding);
+        if (!still()) return;
+        setConfig(result.config);
+        setGithub(result.binding);
+        await finishOpen(result.config);
         if (!still()) return;
         setBoot({ phase: "ready", label: "", percent: 100 });
         return;
@@ -825,6 +820,14 @@ export function App() {
               if (last) void bindRepo({ ...last, inCard: true });
             }}
             onPick={(opts) => void bindRepo({ ...opts, inCard: true })}
+            onReturn={
+              github
+                ? () => {
+                    bindGenRef.current += 1;
+                    setBoot({ phase: "ready", label: "", percent: 100 });
+                  }
+                : undefined
+            }
           />
         ) : (
           <BootScreen

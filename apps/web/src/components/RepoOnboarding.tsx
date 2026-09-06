@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { PublishRepoCheck } from "@open-pages/shared";
 import { GitHubMark } from "./GitHubMark";
 import { ComboSelect } from "./ComboSelect";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { type AuthUser, type GithubRepo } from "../lib/api";
 import { platform } from "../lib/platform";
+import { switchRepoConfirmCopy } from "../lib/repo-onboarding-copy";
 import { assessNewRepoName } from "../lib/repo-name";
 import { siteId } from "../lib/vfs";
 
@@ -18,6 +20,8 @@ interface RepoOnboardingProps {
   onLogin: () => void;
   onSessionStale: () => void;
   onPick: (opts: { repo: string; createRepo?: boolean }) => void;
+  /** When set, user is already bound: show return + confirm before sync. */
+  onReturn?: () => void;
   /** True while bindRepo is running from this card (plan g1). */
   busy?: boolean;
   progressLabel?: string;
@@ -33,6 +37,7 @@ export function RepoOnboarding({
   onLogin,
   onSessionStale,
   onPick,
+  onReturn,
   busy = false,
   progressLabel = "",
   progressPercent = 0,
@@ -45,6 +50,7 @@ export function RepoOnboarding({
   const [createNew, setCreateNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [repoCheck, setRepoCheck] = useState<PublishRepoCheck | null>(null);
   const [repoChecking, setRepoChecking] = useState(false);
 
@@ -107,6 +113,12 @@ export function RepoOnboarding({
     [repos],
   );
 
+  const confirmCopy = switchRepoConfirmCopy({
+    owner: owner || "user",
+    repo: repo.trim() || "repo",
+    createRepo: createNew,
+  });
+
   const canSyncCreate = Boolean(repo.trim()) && !repoChecking && Boolean(repoCheck?.eligible);
   const canSyncExisting = Boolean(repo.trim()) && !loading && options.length > 0;
   const eligible = createNew ? canSyncCreate : canSyncExisting;
@@ -115,6 +127,17 @@ export function RepoOnboarding({
   const showProgress = busy && !bindError;
   const displayError = bindError || error;
 
+  const requestSync = () => {
+    const name = repo.trim();
+    if (!name || busy || !eligible) return;
+    setError(null);
+    if (onReturn) {
+      setConfirmOpen(true);
+      return;
+    }
+    onPick({ repo: name, createRepo: createNew });
+  };
+
   return (
     <div className="boot-screen" data-testid="repo-onboarding">
       <div className="publish-card onboarding-card">
@@ -122,8 +145,9 @@ export function RepoOnboarding({
           <p className="publish-kicker">Open Pages</p>
           <h2>选择一个仓库</h2>
           <p className="hint">
-            登录后选定仓库，会同步配置、文章，并恢复主题和插件。原始文件会备份到 source/origin。
-            列表只显示空仓库和你用 Open Pages 发布过的仓库。
+            {onReturn
+              ? "切换后本地会全部按新仓库来。还没发布的改动会丢掉。"
+              : "登录后选定仓库，会同步配置、文章，并恢复主题和插件。原始文件会备份到 source/origin。列表只显示空仓库和你用 Open Pages 发布过的仓库。"}
           </p>
         </header>
         {!user?.login ? (
@@ -299,17 +323,23 @@ export function RepoOnboarding({
               ) : null}
             </section>
             <footer className="onboard-foot">
+              {onReturn && !busy ? (
+                <button
+                  type="button"
+                  className="ghost onboard-return"
+                  data-testid="onboard-return"
+                  onClick={onReturn}
+                >
+                  返回当前站点
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="primary icon-label onboard-sync"
                 data-testid="onboard-sync"
                 disabled={busy || !eligible}
                 aria-busy={busy}
-                onClick={() => {
-                  if (busy || !eligible) return;
-                  setError(null);
-                  onPick({ repo: repo.trim(), createRepo: createNew });
-                }}
+                onClick={requestSync}
               >
                 <ArrowPathIcon
                   className={busy ? "ui-icon publish-repo-spinner" : "ui-icon"}
@@ -339,6 +369,18 @@ export function RepoOnboarding({
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title={confirmCopy.title}
+        message={confirmCopy.message}
+        confirmLabel={confirmCopy.confirmLabel}
+        danger
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onPick({ repo: repo.trim(), createRepo: createNew });
+        }}
+      />
     </div>
   );
 }

@@ -3390,7 +3390,8 @@ li + li > .outline-item.level-1 {
 }
 
 .onboard-cancel,
-.onboard-retry {
+.onboard-retry,
+.onboard-return {
   width: 100%;
   min-height: 40px;
   justify-content: center;
@@ -3634,6 +3635,11 @@ li + li > .outline-item.level-1 {
   gap: 10px;
   padding-top: 4px;
   border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.publish-foot-split {
+  justify-content: space-between;
+  align-items: center;
 }
 
 .publish-foot .ghost {

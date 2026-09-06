@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:repo-name": "node --import tsx --test src/lib/repo-name.test.ts",
-    "test:publish-target": "node --import tsx --test src/lib/publish-target.test.ts"
+    "test:publish-target": "node --import tsx --test src/lib/publish-target.test.ts",
+    "test:repo-sync": "node --import tsx --test src/lib/repo-sync.test.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",

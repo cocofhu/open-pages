@@ -1,5 +1,7 @@
 import {
   DEFAULT_SITE_CONFIG,
+  aboutPageMarkdown,
+  defaultHexoConfigYaml,
   isOriginPath,
   isThemeConfigPath,
   isThemeId,
@@ -7,13 +9,15 @@ import {
   originSnapshotPath,
   parseOpenPagesSiteManifest,
   siteConfigFromHexoYaml,
+  welcomeMarkdown,
+  WELCOME_POST_PATH,
   type AddonKind,
   type AddonManifest,
   type GithubBinding,
   type SiteConfig,
   type SiteFile,
 } from "@open-pages/shared";
-import { deleteByPrefix, listFiles, writeFile, writeFiles } from "./vfs";
+import { deleteByPrefix, deleteFile, listFiles, writeFile, writeFiles } from "./vfs";
 import { platform } from "./platform";
 
 export interface SyncProgress {
@@ -27,10 +31,39 @@ export interface RepoSyncResult {
   warning?: string;
 }
 
-function isLiveImportPath(path: string): boolean {
+export function isLiveImportPath(path: string): boolean {
   if (isOriginPath(path)) return false;
   if (path === "README.md" || path === "manifest.json") return false;
   return isUserEditablePath(path) || isThemeConfigPath(path);
+}
+
+/** Live paths present locally but absent from the new snapshot must be removed. */
+export function livePathsMissingFromSnapshot(
+  existingPaths: string[],
+  snapshotPaths: string[],
+): string[] {
+  const keep = new Set(snapshotPaths.filter((path) => isLiveImportPath(path)));
+  return existingPaths.filter((path) => isLiveImportPath(path) && !keep.has(path));
+}
+
+export function blankSiteSeedFiles(): SiteFile[] {
+  return [
+    {
+      path: "_config.yml",
+      content: defaultHexoConfigYaml(DEFAULT_SITE_CONFIG),
+      encoding: "utf8",
+    },
+    {
+      path: WELCOME_POST_PATH,
+      content: welcomeMarkdown(),
+      encoding: "utf8",
+    },
+    {
+      path: "source/about/index.md",
+      content: aboutPageMarkdown(),
+      encoding: "utf8",
+    },
+  ];
 }
 
 export async function hasUnpublishedRepoChanges(): Promise<boolean> {
@@ -51,6 +84,16 @@ export async function hasUnpublishedRepoChanges(): Promise<boolean> {
   return false;
 }
 
+async function removeLivePaths(paths: string[]): Promise<void> {
+  for (const path of paths) {
+    await deleteFile(path);
+  }
+}
+
+/**
+ * Replace local live files + origin with the remote snapshot.
+ * Empty snapshots fall back to the product blank-site seed so old posts cannot linger.
+ */
 export async function applyRepoSnapshot(
   snapshot: { files: SiteFile[]; defaultBranch: string },
   owner: string,
@@ -58,23 +101,34 @@ export async function applyRepoSnapshot(
   onProgress?: (progress: SyncProgress) => void,
   previous?: GithubBinding,
 ): Promise<RepoSyncResult> {
+  const liveFromSnapshot = snapshot.files.filter((file) => isLiveImportPath(file.path));
+  const useBlankSeed = liveFromSnapshot.length === 0;
+  const targetLive = useBlankSeed ? blankSiteSeedFiles() : liveFromSnapshot;
+
   onProgress?.({ label: "正在写入 origin 备份", percent: 72 });
   await deleteByPrefix("source/origin/");
-  await writeFiles(
-    snapshot.files.map((file) => ({
-      path: originSnapshotPath(file.path),
-      content: file.content,
-      encoding: file.encoding,
-    })),
-  );
-
-  const live = snapshot.files.filter((file) => isLiveImportPath(file.path));
-  if (live.length) {
-    onProgress?.({ label: "正在导入文章和配置", percent: 80 });
-    await writeFiles(live);
+  if (snapshot.files.length) {
+    await writeFiles(
+      snapshot.files.map((file) => ({
+        path: originSnapshotPath(file.path),
+        content: file.content,
+        encoding: file.encoding,
+      })),
+    );
   }
 
-  const configFile = snapshot.files.find((file) => file.path === "_config.yml" && file.encoding !== "base64");
+  onProgress?.({ label: "正在替换本地站点", percent: 80 });
+  const existing = await listFiles();
+  const stale = livePathsMissingFromSnapshot(
+    existing.map((file) => file.path),
+    targetLive.map((file) => file.path),
+  );
+  await removeLivePaths(stale);
+  await writeFiles(targetLive);
+
+  const configFile = useBlankSeed
+    ? undefined
+    : snapshot.files.find((file) => file.path === "_config.yml" && file.encoding !== "base64");
   let config = configFile ? siteConfigFromHexoYaml(configFile.content) : { ...DEFAULT_SITE_CONFIG };
   const manifestFile = snapshot.files.find((file) => file.path === "manifest.json" && file.encoding !== "base64");
   const manifest = manifestFile ? parseOpenPagesSiteManifest(manifestFile.content) : null;
@@ -83,7 +137,9 @@ export async function applyRepoSnapshot(
   }
 
   onProgress?.({ label: "正在恢复主题和插件", percent: 86 });
-  const warning = await restoreAddons(manifest?.addons ?? [], config, onProgress);
+  const warning = useBlankSeed
+    ? undefined
+    : await restoreAddons(manifest?.addons ?? [], config, onProgress);
   if (configFile) await writeFile("_config.yml", configFile.content);
 
   return {
@@ -95,6 +151,31 @@ export async function applyRepoSnapshot(
       ...(typeof previous?.customDomain === "string" ? { customDomain: previous.customDomain } : {}),
     },
     warning,
+  };
+}
+
+/** Clear old live files and origin, then write the product blank-site seed. */
+export async function resetBlankSite(
+  owner: string,
+  repo: string,
+  pagesUrl?: string,
+  onProgress?: (progress: SyncProgress) => void,
+): Promise<RepoSyncResult> {
+  onProgress?.({ label: "正在重置为空白站点", percent: 60 });
+  await deleteByPrefix("source/origin/");
+  const existing = await listFiles();
+  const live = existing.map((file) => file.path).filter((path) => isLiveImportPath(path));
+  await removeLivePaths(live);
+  const seeds = blankSiteSeedFiles();
+  await writeFiles(seeds);
+  return {
+    config: { ...DEFAULT_SITE_CONFIG },
+    binding: {
+      owner,
+      repo,
+      defaultBranch: "main",
+      pagesUrl,
+    },
   };
 }
 
