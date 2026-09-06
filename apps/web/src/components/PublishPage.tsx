@@ -8,12 +8,15 @@ import {
   RocketLaunchIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { useEffect, useMemo, useState } from "react";
-import { pagesUrl, THEME_META, type PublishRepoCheck, type ThemeId } from "@open-pages/shared";
-import { type AuthUser, type GithubRepo } from "../lib/api";
+import { useEffect, useState } from "react";
+import {
+  pagesUrl,
+  THEME_META,
+  type PublishRepoCheck,
+  type ThemeId,
+} from "@open-pages/shared";
+import { type AuthUser } from "../lib/api";
 import { isTauri, platform } from "../lib/platform";
-import { assessNewRepoName } from "../lib/repo-name";
-import { ComboSelect } from "./ComboSelect";
 import { GitHubMark } from "./GitHubMark";
 import { StudioBar } from "./StudioBar";
 
@@ -21,7 +24,10 @@ interface PublishPageProps {
   user: AuthUser | null;
   siteId: string;
   theme: ThemeId;
-  defaultRepo?: string;
+  /** Bound GitHub owner from local GithubBinding (read-only target). */
+  boundOwner?: string;
+  /** Bound GitHub repo from local GithubBinding (read-only target). */
+  boundRepo?: string;
   busy: boolean;
   previewing: boolean;
   online: boolean;
@@ -31,15 +37,16 @@ interface PublishPageProps {
   onClose: () => void;
   onLogin: () => void;
   onSessionStale: () => void;
-  onPreview: (opts: { repo: string; owner?: string }) => void;
-  onPublish: (opts: { owner?: string; repo: string; createRepo?: boolean }) => void;
+  onPreview: () => void;
+  onPublish: () => void;
 }
 
 export function PublishPage({
   user,
   siteId,
   theme,
-  defaultRepo,
+  boundOwner,
+  boundRepo,
   busy,
   previewing,
   online,
@@ -52,54 +59,38 @@ export function PublishPage({
   onPreview,
   onPublish,
 }: PublishPageProps) {
-  const [repos, setRepos] = useState<GithubRepo[]>([]);
-  const [repo, setRepo] = useState(defaultRepo ?? "");
-  const [createNew, setCreateNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [repoCheck, setRepoCheck] = useState<PublishRepoCheck | null>(null);
   const [repoChecking, setRepoChecking] = useState(false);
 
-  useEffect(() => {
-    if (!user?.login) return;
-    setError(null);
-    void platform
-      .repos(siteId)
-      .then((data) => {
-        const usable = data.repos.filter((item) => item.eligible !== false);
-        setRepos(usable);
-        setCreateNew(usable.length === 0 && !defaultRepo);
-        setRepo((current) => current || defaultRepo || usable[0]?.name || "");
-      })
-      .catch((err: Error) => {
-        setError(err.message);
-        // The header is a snapshot taken at startup. Re-read the session so it
-        // stops advertising a connection the calls underneath cannot make.
-        onSessionStale();
-      });
-  }, [user?.login, onSessionStale]);
+  const owner = boundOwner?.trim() ?? "";
+  const repo = boundRepo?.trim() ?? "";
+  const bound = Boolean(user?.login && owner && repo);
+  const fullName = bound ? `${owner}/${repo}` : "";
 
   useEffect(() => {
-    if (!user?.login || !repo.trim()) {
+    if (!user?.login || !bound) {
       setRepoCheck(null);
       setRepoChecking(false);
+      setError(null);
       return;
     }
 
+    setError(null);
     setRepoChecking(true);
+    setRepoCheck(null);
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          if (createNew) {
-            setRepoCheck(assessNewRepoName(repo, repos));
-            return;
-          }
-          setRepoCheck(await platform.checkRepoForPublish(user.login!, repo, siteId));
+          setRepoCheck(await platform.checkRepoForPublish(owner, repo, siteId));
         } catch (err) {
           setRepoCheck({
             eligible: false,
             reason: "foreign",
             message: err instanceof Error ? err.message : "检查失败",
           });
+          // Header may still look logged-in while the session underneath is stale.
+          onSessionStale();
         } finally {
           setRepoChecking(false);
         }
@@ -107,22 +98,12 @@ export function PublishPage({
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [createNew, repo, repos, siteId, user?.login]);
+  }, [bound, owner, repo, siteId, user?.login, onSessionStale]);
 
-  const owner = user?.login ?? "";
-  const site = repo && owner ? pagesUrl(owner, repo) : "";
+  const site = bound ? pagesUrl(owner, repo) : "";
   const themeLabel = THEME_META[theme]?.label ?? theme;
-  const canPublish = Boolean(repo.trim()) && !repoChecking && Boolean(repoCheck?.eligible);
+  const canPublish = bound && !repoChecking && Boolean(repoCheck?.eligible);
   const showPublishFeedback = busy || Boolean(status) || Boolean(resultUrl);
-  const repoOptions = useMemo(
-    () =>
-      repos.map((item) => ({
-        value: item.name,
-        label: item.fullName,
-        hint: item.private ? "私有" : "公开",
-      })),
-    [repos],
-  );
 
   return (
     <div className="studio studio-github" data-testid="publish-page">
@@ -148,8 +129,7 @@ export function PublishPage({
             <h2>发布站点</h2>
             <p className="hint">
               将用主题 <span className="publish-theme-pill">{themeLabel}</span>{" "}
-              生成静态网站并推送到 GitHub。主题可在站点设置里更换。只列出空仓库和 Open Pages
-              站点，避免覆盖其他项目。
+              生成静态网站并推送到已绑定的 GitHub 仓库。主题可在站点设置里更换。
             </p>
           </header>
 
@@ -159,7 +139,7 @@ export function PublishPage({
                 <GitHubMark className="publish-login-icon" />
               </div>
               <h3>连接 GitHub</h3>
-              <p className="hint">登录后选择目标仓库，一键构建并推送到 GitHub Pages。</p>
+              <p className="hint">登录后即可发布到当前站点已绑定的仓库。</p>
               <button type="button" className="primary icon-label" data-testid="publish-login" onClick={onLogin}>
                 <GitHubMark className="ui-icon" />
                 登录 GitHub
@@ -177,100 +157,66 @@ export function PublishPage({
                 )}
                 <div className="publish-account-text">
                   <strong>@{user.login}</strong>
-                  <span className="hint">已连接，可以发布到你的仓库</span>
+                  <span className="hint">
+                    {bound ? "已连接，发布到绑定仓库" : "已连接，但当前站点尚未绑定仓库"}
+                  </span>
                 </div>
               </div>
 
               <section className="studio-set-group publish-repo-group">
                 <h3>目标仓库</h3>
 
-                <div className="studio-toggle-row">
-                  <div>
-                    <strong>创建新仓库</strong>
-                    <span>在 GitHub 上新建并发布到这个仓库</span>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={createNew}
-                    className={createNew ? "studio-switch on" : "studio-switch"}
-                    data-testid="publish-create-toggle"
-                    onClick={() => setCreateNew((current) => !current)}
-                  >
-                    <i />
-                  </button>
-                </div>
+                {bound ? (
+                  <>
+                    <p className="publish-bound-repo" data-testid="publish-bound-repo">
+                      @{fullName}
+                    </p>
+                    <p className="hint">
+                      发布只会推到这个已绑定的仓库。要换仓库请到设置里操作。
+                    </p>
 
-                {createNew ? (
-                  <label className="studio-field publish-repo-name">
-                    <span>仓库名</span>
-                    <input
-                      value={repo}
-                      data-testid="publish-repo-input"
-                      spellCheck={false}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      onChange={(event) => setRepo(event.target.value)}
-                      placeholder={`${owner}.github.io`}
-                    />
-                    <em className="hint">建议使用 {owner}.github.io 作为个人站点首页</em>
-                  </label>
-                ) : (
-                  repoOptions.length ? (
-                    <ComboSelect
-                      label="选择仓库"
-                      value={repo}
-                      options={repoOptions}
-                      testId="publish-repo-select"
-                      searchPlaceholder="搜索仓库…"
-                      onChange={setRepo}
-                    />
-                  ) : (
-                    <p className="hint">没有可用仓库。打开「创建新仓库」，或选择你之前用 Open Pages 发布过的仓库。</p>
-                  )
-                )}
-
-                {repo ? (
-                  <div
-                    className={
-                      repoChecking
-                        ? "publish-repo-check checking"
-                        : repoCheck?.eligible
-                          ? "publish-repo-check ok"
-                          : repoCheck
-                            ? "publish-repo-check error"
-                            : "publish-repo-check"
-                    }
-                    data-testid="publish-repo-check"
-                    aria-live="polite"
-                    aria-busy={repoChecking}
-                  >
-                    {repoChecking ? (
-                      <>
-                        <div className="publish-repo-check-head">
-                          <ArrowPathIcon className="ui-icon publish-repo-spinner" aria-hidden="true" />
-                          <strong>正在检查仓库…</strong>
-                        </div>
-                        <div className="addon-progress" aria-hidden="true">
-                          <div className="addon-progress-track">
-                            <i />
+                    <div
+                      className={
+                        repoChecking
+                          ? "publish-repo-check checking"
+                          : repoCheck?.eligible
+                            ? "publish-repo-check ok"
+                            : repoCheck
+                              ? "publish-repo-check error"
+                              : "publish-repo-check"
+                      }
+                      data-testid="publish-repo-check"
+                      aria-live="polite"
+                      aria-busy={repoChecking}
+                    >
+                      {repoChecking ? (
+                        <>
+                          <div className="publish-repo-check-head">
+                            <ArrowPathIcon className="ui-icon publish-repo-spinner" aria-hidden="true" />
+                            <strong>正在检查仓库…</strong>
                           </div>
-                        </div>
-                        <p className="hint">
-                          {createNew
-                            ? "确认仓库名可用，并避免与已有项目冲突…"
-                            : "确认这个仓库可以安全发布，避免覆盖其他项目…"}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <strong>{repoCheck?.eligible ? "可以发布" : "无法发布"}</strong>
-                        <p className="hint">{repoCheck?.message ?? "请选择仓库"}</p>
-                      </>
-                    )}
+                          <div className="addon-progress" aria-hidden="true">
+                            <div className="addon-progress-track">
+                              <i />
+                            </div>
+                          </div>
+                          <p className="hint">确认这个仓库可以安全发布，避免覆盖其他项目…</p>
+                        </>
+                      ) : repoCheck ? (
+                        <>
+                          <strong>{repoCheck.eligible ? "可以发布" : "无法发布"}</strong>
+                          <p className="hint">{repoCheck.message}</p>
+                        </>
+                      ) : null}
+                    </div>
+                  </>
+                ) : (
+                  <div className="publish-unbound" data-testid="publish-unbound">
+                    <p className="hint">
+                      当前站点还没有绑定 GitHub 仓库。请先在引导页或设置里完成绑定，再回来发布。发布页不能选择或新建仓库。
+                    </p>
                   </div>
-                ) : null}
+                )}
               </section>
 
               {showPublishFeedback && site ? (
@@ -314,7 +260,7 @@ export function PublishPage({
                       ? "按 GitHub Pages 路径预览，在应用内打开"
                       : "预览需要联网"
                   }
-                  onClick={() => onPreview({ repo, owner })}
+                  onClick={onPreview}
                 >
                   <EyeIcon className="ui-icon" aria-hidden="true" />
                   {previewing ? "生成中…" : "预览"}
@@ -324,7 +270,7 @@ export function PublishPage({
                   className="primary icon-label"
                   disabled={busy || previewing || !canPublish}
                   data-testid="publish-submit"
-                  onClick={() => onPublish({ repo, createRepo: createNew })}
+                  onClick={onPublish}
                 >
                   <RocketLaunchIcon className="ui-icon" aria-hidden="true" />
                   {busy ? "发布中…" : "Hexo 发布"}
