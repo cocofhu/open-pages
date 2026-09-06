@@ -321,6 +321,57 @@ graph LR
     await expect(page.getByTestId("settings-save")).toBeEnabled();
     await page.getByTestId("settings-save").click();
     await expect(page.getByTestId("sidebar-site-title")).toHaveText("E2E Site");
+    await expect(page.getByTestId("cfg-custom-domain")).toHaveValue("blog.example.com");
+
+    // Clear domain and save: field must stay empty (not refilled by remote cname).
+    await page.route("**/pages-domain", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ customDomain: "old.example.com" }),
+      });
+    });
+    await page.evaluate(async () => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open("open-pages", 1);
+        req.onerror = () => reject(req.error ?? new Error("idb open failed"));
+        req.onsuccess = () => resolve(req.result);
+      });
+      const row = await new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
+        const tx = database.transaction("meta", "readonly");
+        const getReq = tx.objectStore("meta").get("default");
+        getReq.onerror = () => reject(getReq.error ?? new Error("idb get failed"));
+        getReq.onsuccess = () => resolve(getReq.result as Record<string, unknown> | undefined);
+      });
+      if (!row) throw new Error("missing meta row");
+      const github = {
+        ...((row.github as Record<string, unknown> | undefined) ?? {}),
+        owner: "alice",
+        repo: "notes",
+        defaultBranch: "main",
+        customDomain: "blog.example.com",
+      };
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction("meta", "readwrite");
+        const putReq = tx.objectStore("meta").put({ ...row, github, updatedAt: Date.now() });
+        putReq.onerror = () => reject(putReq.error ?? new Error("idb put failed"));
+        putReq.onsuccess = () => resolve();
+      });
+      database.close();
+    });
+    await page.reload();
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    // Reload keeps #/settings/site; settings panel is already open.
+    await page.goto("/#/settings/site");
+    await expect(page.getByTestId("settings-page")).toBeVisible();
+    await expect(page.getByTestId("cfg-custom-domain")).toHaveValue("blog.example.com");
+    await page.getByTestId("cfg-custom-domain").fill("");
+    await page.getByTestId("settings-save").click();
+    await expect(page.getByTestId("cfg-custom-domain")).toHaveValue("");
+    // Stay empty even if pagesDomain would return a remote cname.
+    await expect
+      .poll(async () => page.getByTestId("cfg-custom-domain").inputValue(), { timeout: 2_000 })
+      .toBe("");
 
     await page.getByTestId("settings-tab-theme").click();
     await page.getByTestId("theme-stellar").click();

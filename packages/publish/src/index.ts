@@ -9,6 +9,7 @@ import {
   openPagesManifestFile,
   openPagesReadmeFile,
   pagesUrl,
+  parseCustomDomain,
   parseRepoName,
   parseSiteConfig,
   publishUrlAndRoot,
@@ -95,7 +96,10 @@ export async function previewLocalSite(options: {
   };
 }
 
-/** Resolve domain for publish: explicit settings value wins; otherwise preserve remote. */
+/**
+ * Resolve domain for publish: explicit settings value wins; otherwise preserve remote.
+ * Always parse so CNAME injection and url/root stay consistent (reject illegal hosts).
+ */
 export async function resolvePublishCustomDomain(
   token: string,
   owner: string,
@@ -103,8 +107,11 @@ export async function resolvePublishCustomDomain(
   requested?: string | null,
 ): Promise<string | null> {
   if (typeof requested === "string") {
-    const trimmed = requested.trim();
-    return trimmed || null;
+    const parsed = parseCustomDomain(requested);
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+    return parsed.hostname || null;
   }
   return readPagesCustomDomain(token, owner, repo);
 }

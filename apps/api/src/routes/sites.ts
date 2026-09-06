@@ -10,6 +10,7 @@ import {
   openPagesManifestFile,
   openPagesReadmeFile,
   pagesUrl,
+  parseCustomDomain,
   parseRepoName,
   parseSiteConfig,
   publishUrlAndRoot,
@@ -195,7 +196,11 @@ siteRoutes.post("/:siteId/publish", async (c) => {
 
   const hostname =
     typeof body.customDomain === "string"
-      ? body.customDomain.trim() || null
+      ? (() => {
+          const parsed = parseCustomDomain(body.customDomain);
+          if (!parsed.ok) throw new ClientError(parsed.error, 400);
+          return parsed.hostname || null;
+        })()
       : await readPagesCustomDomain(session.accessToken, owner, repo);
   const { url: siteUrl, root: siteRoot } = publishUrlAndRoot(owner, repo, hostname);
 

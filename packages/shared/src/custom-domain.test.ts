@@ -69,3 +69,11 @@ test("withCnameFile injects hostname and omits when empty", () => {
     { path: "index.html", content: "<html></html>" },
   ]);
 });
+
+test("publishUrlAndRoot ignores illegal custom domain (same as no domain)", () => {
+  assert.deepEqual(publishUrlAndRoot("alice", "notes", "https://bad.example.com"), {
+    url: "https://alice.github.io/notes",
+    root: "/notes/",
+    hostname: null,
+  });
+});

@@ -203,7 +203,11 @@ export function SettingsPage({
     setDraftDomain(local);
     setDomainBaseline(local);
     setDomainError("");
-    if (!github?.owner?.trim() || !github?.repo?.trim() || local) return;
+    // Prefetch remote only when never configured (undefined).
+    // Explicit clear ("") is a saved target state — do not overwrite with Pages cname.
+    if (!github?.owner?.trim() || !github?.repo?.trim() || github.customDomain !== undefined) {
+      return;
+    }
     let cancelled = false;
     void platform
       .pagesDomain(github.owner, github.repo)
