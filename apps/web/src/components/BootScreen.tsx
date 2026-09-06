@@ -5,6 +5,7 @@ export function BootScreen({
   percent,
   error,
   onRetry,
+  onCancel,
 }: {
   kicker?: string;
   title: string;
@@ -12,6 +13,7 @@ export function BootScreen({
   percent?: number;
   error?: string | null;
   onRetry?: () => void;
+  onCancel?: () => void;
 }) {
   const width = Math.max(0, Math.min(100, Math.round(percent ?? 12)));
   return (
@@ -34,11 +36,18 @@ export function BootScreen({
             <i style={{ width: `${width}%` }} />
           </div>
         ) : null}
-        {error && onRetry ? (
-          <button type="button" className="primary" onClick={onRetry}>
-            重试
-          </button>
-        ) : null}
+        <div className="boot-actions">
+          {error && onRetry ? (
+            <button type="button" className="primary" onClick={onRetry}>
+              重试
+            </button>
+          ) : null}
+          {onCancel ? (
+            <button type="button" className="ghost" onClick={onCancel}>
+              换一个仓库
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

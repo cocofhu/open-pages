@@ -112,27 +112,49 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
               </div>
             </div>
             <section className="studio-set-group publish-repo-group">
-              <div className="studio-toggle-row">
-                <div>
-                  <strong>创建新仓库</strong>
-                  <span>从空白站点开始，稍后再发布</span>
-                </div>
+              <div className="onboard-mode" role="tablist" aria-label="仓库方式">
                 <button
                   type="button"
-                  role="switch"
-                  aria-checked={createNew}
-                  className={createNew ? "toggle on" : "toggle"}
-                  onClick={() => setCreateNew((value) => !value)}
-                />
+                  role="tab"
+                  aria-selected={createNew}
+                  className={createNew ? "on" : ""}
+                  data-testid="onboard-create-new"
+                  onClick={() => {
+                    setCreateNew(true);
+                    setRepo("");
+                  }}
+                >
+                  创建新仓库
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!createNew}
+                  className={createNew ? "" : "on"}
+                  data-testid="onboard-pick-existing"
+                  onClick={() => {
+                    setCreateNew(false);
+                    setRepo((current) => current || repos[0]?.name || "");
+                  }}
+                >
+                  选择已有仓库
+                </button>
               </div>
+              <p className="hint">
+                {createNew
+                  ? "输入一个还没有的仓库名。点同步后会在 GitHub 上新建，并从空白站点开始。"
+                  : "只列出空仓库和你用 Open Pages 发布过的仓库。"}
+              </p>
               {createNew ? (
-                <label className="block">
+                <label className="block publish-repo-name">
                   仓库名
                   <input
                     value={repo}
                     spellCheck={false}
-                    onChange={(event) => setRepo(event.target.value)}
+                    data-testid="onboard-repo-name"
+                    autoComplete="off"
                     placeholder={`${owner}.github.io`}
+                    onChange={(event) => setRepo(event.target.value)}
                   />
                 </label>
               ) : options.length ? (

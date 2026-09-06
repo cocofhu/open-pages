@@ -3059,6 +3059,55 @@ li + li > .outline-item.level-1 {
   border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
 }
 
+.onboard-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 70%, var(--paper));
+}
+
+.onboard-mode button {
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onboard-mode button.on {
+  background: var(--ink);
+  color: var(--accent-ink);
+}
+
+.boot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.boot-actions .primary,
+.boot-actions .ghost {
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.boot-actions .primary {
+  background: var(--ink);
+  color: var(--accent-ink);
+}
+
+.boot-actions .ghost {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 55%, var(--paper));
+}
+
 .publish-repo-name {
   font-size: 12px;
   color: var(--muted);

@@ -115,6 +115,7 @@ export function App() {
   const themeReadyRef = useRef(false);
   const routeRef = useRef(route);
   const writeChainRef = useRef(Promise.resolve());
+  const bindGenRef = useRef(0);
   const editingPathRef = useRef<string | null>(null);
   const sourceEditorRef = useRef<SourceEditorHandle>(null);
   routeRef.current = route;
@@ -621,16 +622,24 @@ export function App() {
     }
   };
 
+  const cancelBind = () => {
+    bindGenRef.current += 1;
+    setBoot({ phase: "pick-repo", label: "", percent: 0 });
+  };
+
   const bindRepo = async (opts: { repo: string; createRepo?: boolean }) => {
     const owner = user?.login;
     if (!owner) {
       setBoot({ phase: "pick-repo", label: "", percent: 0, error: "请先登录 GitHub" });
       return;
     }
+    const gen = ++bindGenRef.current;
+    const still = () => gen === bindGenRef.current;
     setBoot({ phase: "loading", label: "正在同步仓库…", percent: 8 });
     try {
       if (opts.createRepo) {
         const created = await platform.createRepo(opts.repo);
+        if (!still()) return;
         const nextConfig = config ?? { ...DEFAULT_SITE_CONFIG };
         const binding: GithubBinding = {
           owner: created.owner,
@@ -639,29 +648,38 @@ export function App() {
           pagesUrl: created.pagesUrl,
         };
         await saveConfig(nextConfig, binding);
+        if (!still()) return;
         setConfig(nextConfig);
         setGithub(binding);
         await finishOpen(nextConfig);
+        if (!still()) return;
         setBoot({ phase: "ready", label: "", percent: 100 });
         return;
       }
       setBoot({ phase: "loading", label: "正在检查仓库…", percent: 12 });
       const check = await platform.checkRepoForPublish(owner, opts.repo, siteId());
+      if (!still()) return;
       if (!check.eligible) throw new Error(check.message);
       setBoot({ phase: "loading", label: "正在拉取仓库…", percent: 18 });
       const snapshot = await platform.downloadRepoSnapshot(owner, opts.repo);
-      const result = await applyRepoSnapshot(snapshot, owner, opts.repo, (progress) =>
-        setBoot({ phase: "loading", label: progress.label, percent: progress.percent }),
-      );
+      if (!still()) return;
+      const result = await applyRepoSnapshot(snapshot, owner, opts.repo, (progress) => {
+        if (still()) setBoot({ phase: "loading", label: progress.label, percent: progress.percent });
+      });
+      if (!still()) return;
       await saveConfig(result.config, result.binding);
+      if (!still()) return;
       setConfig(result.config);
       setGithub(result.binding);
       const nextAddons = await platform.addons().catch(() => ({ addons: [] as AddonManifest[] }));
+      if (!still()) return;
       if (Array.isArray(nextAddons.addons) && nextAddons.addons.length) setAddons(nextAddons.addons);
       await finishOpen(result.config);
+      if (!still()) return;
       setBoot({ phase: "ready", label: "", percent: 100 });
       if (result.warning) setToast({ kind: "error", text: result.warning });
     } catch (error) {
+      if (!still()) return;
       setBoot({
         phase: "loading",
         label: "正在同步仓库…",
@@ -771,13 +789,18 @@ export function App() {
             title={boot.label || "正在打开…"}
             percent={boot.percent}
             error={boot.error}
-            onRetry={() => {
-              if (github) {
-                void bindRepo({ repo: github.repo });
-                return;
-              }
-              setBoot({ phase: "pick-repo", label: "", percent: 0 });
-            }}
+            onRetry={
+              boot.error
+                ? () => {
+                    if (github) {
+                      void bindRepo({ repo: github.repo });
+                      return;
+                    }
+                    setBoot({ phase: "pick-repo", label: "", percent: 0 });
+                  }
+                : undefined
+            }
+            onCancel={cancelBind}
           />
         )}
         <Toast toast={toast} onDismiss={() => setToast(null)} />
