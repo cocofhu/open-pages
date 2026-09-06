@@ -13,7 +13,7 @@ import {
   type SiteConfig,
   type SiteFile,
 } from "@open-pages/shared";
-import { deleteByPrefix, writeFile, writeFiles } from "./vfs";
+import { deleteByPrefix, listFiles, writeFile, writeFiles } from "./vfs";
 import { platform } from "./platform";
 
 export interface SyncProgress {
@@ -31,6 +31,24 @@ function isLiveImportPath(path: string): boolean {
   if (isOriginPath(path)) return false;
   if (path === "README.md" || path === "manifest.json") return false;
   return isUserEditablePath(path) || isThemeConfigPath(path);
+}
+
+export async function hasUnpublishedRepoChanges(): Promise<boolean> {
+  const files = await listFiles();
+  const byPath = new Map(files.map((file) => [file.path, file]));
+  const origins = files.filter((file) => isOriginPath(file.path));
+  if (!origins.length) return files.some((file) => isLiveImportPath(file.path));
+  for (const file of files) {
+    if (!isLiveImportPath(file.path)) continue;
+    const origin = byPath.get(originSnapshotPath(file.path));
+    if (!origin || origin.content !== file.content || origin.encoding !== file.encoding) return true;
+  }
+  for (const origin of origins) {
+    const live = origin.path.slice("source/origin/".length);
+    if (!isLiveImportPath(live)) continue;
+    if (!byPath.has(live)) return true;
+  }
+  return false;
 }
 
 export async function applyRepoSnapshot(

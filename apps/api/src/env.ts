@@ -1,18 +1,11 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { resolveGithubClientId } from "@open-pages/github-auth";
 
 for (const file of [resolve(process.cwd(), ".env"), resolve(process.cwd(), "../../.env")]) {
   if (existsSync(file) && typeof process.loadEnvFile === "function") {
     process.loadEnvFile(file);
   }
-}
-
-function required(name: string, fallback?: string): string {
-  const value = process.env[name] ?? fallback;
-  if (!value) {
-    throw new Error(`Missing environment variable ${name}`);
-  }
-  return value;
 }
 
 function originOf(value: string, name: string): string {
@@ -40,18 +33,22 @@ export const env = {
   previewPort,
   previewOrigin,
   sessionSecret: (() => {
-    const value = required("SESSION_SECRET");
+    const value =
+      process.env.SESSION_SECRET ??
+      (process.env.NODE_ENV === "production" ? undefined : "open-pages-local-dev-session-secret-min-32");
+    if (!value) {
+      throw new Error("Missing environment variable SESSION_SECRET");
+    }
     if (value.length < 32) {
       throw new Error("SESSION_SECRET must be at least 32 characters");
     }
     return value;
   })(),
-  githubClientId: process.env.GITHUB_CLIENT_ID ?? "",
-  githubClientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+  githubClientId: resolveGithubClientId(),
   workspaceRoot: resolve(process.env.WORKSPACE_ROOT ?? "./workspaces"),
   allowGuestAddons: process.env.ALLOW_GUEST_ADDONS === "true",
 };
 
 export function githubConfigured(): boolean {
-  return Boolean(env.githubClientId && env.githubClientSecret);
+  return Boolean(env.githubClientId);
 }

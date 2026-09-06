@@ -26,6 +26,9 @@ importers:
       '@open-pages/github':
         specifier: workspace:*
         version: link:../../packages/github
+      '@open-pages/github-auth':
+        specifier: workspace:*
+        version: link:../../packages/github-auth
       '@open-pages/hexo-runner':
         specifier: workspace:*
         version: link:../../packages/hexo-runner

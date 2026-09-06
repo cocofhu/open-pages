@@ -116,7 +116,7 @@ pub fn client_id() -> String {
     }
     option_env!("OPEN_PAGES_EMBEDDED_GITHUB_CLIENT_ID")
         .filter(|id| !id.is_empty())
-        .unwrap_or("")
+        .unwrap_or("Ov23liIsiGaGTn9IzJI6")
         .to_string()
 }
 

@@ -54,6 +54,7 @@ export interface AddonStore {
     requestedKind?: AddonKind,
     onProgress?: ProgressReporter,
   ): Promise<AddonManifest>;
+  updateAddon(owner: string, id: string, onProgress?: ProgressReporter): Promise<AddonManifest>;
   setAddonEnabled(owner: string, id: string, enabled: boolean): Promise<AddonManifest>;
   removeAddon(owner: string, id: string): Promise<void>;
 }
@@ -148,41 +149,25 @@ async function writeIndex(owner: string, index: AddonIndex): Promise<void> {
   };
 }
 
-  async function installAddon(
-  owner: string,
-  source: string,
-  requestedKind?: AddonKind,
-  onProgress: ProgressReporter = () => {},
-): Promise<AddonManifest> {
-  const report = (stage: InstallProgress["stage"], label: string, percent: number) =>
+  function reportProgress(
+    onProgress: ProgressReporter,
+    stage: InstallProgress["stage"],
+    label: string,
+    percent: number,
+  ) {
     onProgress({ stage, label, percent: Math.round(percent) });
-
-  report("resolve", "解析安装来源", 4);
-  const normalized = normalizeSource(source);
-  if (normalized.source.type === "npm") {
-    const builtin = BUILTIN_ADDONS.find(
-      (addon) => addon.packageName === normalized.source.packageName,
-    );
-    if (builtin) {
-      if (requestedKind && builtin.kind !== requestedKind) {
-        throw new Error(`Package is a Hexo ${builtin.kind}, not a ${requestedKind}`);
-      }
-      report("done", "已预装，无需重复安装", 100);
-      return builtin;
-    }
   }
-  return withInstallGate(owner, async () => {
-    const index = await readIndex(owner);
-    const duplicate = index.addons.find((addon) => sameSource(addon.source, normalized.source));
-    if (duplicate) {
-      report("done", "已安装过这个扩展", 100);
-      return publicAddon(duplicate);
-    }
 
-    const root = ownerRoot(owner);
-    const staging = join(root, `.install-${process.pid}-${Date.now()}`);
+  async function fetchAddonStaging(
+    owner: string,
+    normalized: ReturnType<typeof normalizeSource>,
+    report: (stage: InstallProgress["stage"], label: string, percent: number) => void,
+  ): Promise<{
+    staging: string;
+    installed: Awaited<ReturnType<typeof findInstalledAddon>>;
+  }> {
+    const staging = join(ownerRoot(owner), `.install-${process.pid}-${Date.now()}`);
     await mkdir(staging, { recursive: true });
-    let moved = false;
     try {
       await writeFile(join(staging, "package.json"), '{"private":true}\n');
       report("download", "正在下载依赖", DOWNLOAD_START);
@@ -218,6 +203,102 @@ async function writeIndex(owner: string, index: AddonIndex): Promise<void> {
       await assertInstallTree(staging);
       report("inspect", "读取扩展信息", 84);
       const installed = await findInstalledAddon(staging);
+      return { staging, installed };
+    } catch (error) {
+      await rm(staging, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  function storedFromInstall(
+    kind: AddonKind,
+    installed: Awaited<ReturnType<typeof findInstalledAddon>>,
+    normalized: ReturnType<typeof normalizeSource>,
+    extension: Awaited<ReturnType<typeof readExtensionManifest>>,
+    previous?: StoredAddon,
+  ): StoredAddon {
+    const id = addonId(installed.packageName);
+    return {
+      id,
+      kind,
+      packageName: installed.packageName,
+      label: extension?.label ?? installed.displayName ?? installed.packageName,
+      description: extension?.description ?? installed.description ?? "用户安装的 Hexo 扩展",
+      source:
+        normalized.source.type === "github"
+          ? { ...normalized.source, packageName: installed.packageName }
+          : {
+              type: "npm",
+              packageName: installed.packageName,
+              version: installed.version,
+            },
+      settings: extension?.settings ?? [],
+      builtin: false,
+      enabled: kind === "plugin" ? previous?.enabled !== false : undefined,
+      tint: extension?.tint,
+    };
+  }
+
+  async function readInstalledExtension(
+    finalDir: string,
+    kind: AddonKind,
+    packageName: string,
+  ) {
+    const manifestFile = kind === "theme" ? "open-pages.theme.json" : "open-pages.plugin.json";
+    return readExtensionManifest(join(finalDir, "node_modules", packageName, manifestFile));
+  }
+
+  async function placeAddonPackage(owner: string, id: string, staging: string): Promise<string> {
+    const finalDir = join(ownerRoot(owner), "packages", id);
+    await mkdir(dirname(finalDir), { recursive: true });
+    await rm(finalDir, { recursive: true, force: true });
+    await rename(staging, finalDir);
+    return finalDir;
+  }
+
+  async function invalidateThemeCopies(owner: string, themeId: string): Promise<void> {
+    for (const dir of await siteDirs(owner)) {
+      await rm(join(dir, "themes", themeId, ".open-pages-theme"), { force: true });
+    }
+  }
+
+  async function installAddon(
+  owner: string,
+  source: string,
+  requestedKind?: AddonKind,
+  onProgress: ProgressReporter = () => {},
+): Promise<AddonManifest> {
+  const report = (stage: InstallProgress["stage"], label: string, percent: number) =>
+    reportProgress(onProgress, stage, label, percent);
+
+  report("resolve", "解析安装来源", 4);
+  const normalized = normalizeSource(source);
+  if (normalized.source.type === "npm") {
+    const builtin = BUILTIN_ADDONS.find(
+      (addon) => addon.packageName === normalized.source.packageName,
+    );
+    if (builtin) {
+      if (requestedKind && builtin.kind !== requestedKind) {
+        throw new Error(`Package is a Hexo ${builtin.kind}, not a ${requestedKind}`);
+      }
+      report("done", "已预装，无需重复安装", 100);
+      return builtin;
+    }
+  }
+  return withInstallGate(owner, async () => {
+    const index = await readIndex(owner);
+    const duplicate = index.addons.find((addon) => sameSource(addon.source, normalized.source));
+    if (duplicate) {
+      report("done", "已安装过这个扩展", 100);
+      return publicAddon(duplicate);
+    }
+
+    let moved = false;
+    let staging = "";
+    try {
+      const fetched = await fetchAddonStaging(owner, normalized, report);
+      staging = fetched.staging;
+      const installed = fetched.installed;
       const kind = requestedKind ?? inferKind(installed.packageName);
       assertPackageKind(installed.packageName, kind);
       const id = addonId(installed.packageName);
@@ -232,45 +313,70 @@ async function writeIndex(owner: string, index: AddonIndex): Promise<void> {
         throw new Error(`Addon id already installed: ${id}`);
       }
 
-      const finalDir = join(root, "packages", id);
-      await mkdir(dirname(finalDir), { recursive: true });
-      await rm(finalDir, { recursive: true, force: true });
-      await rename(staging, finalDir);
+      const finalDir = await placeAddonPackage(owner, id, staging);
       moved = true;
-      const manifestFile =
-        kind === "theme" ? "open-pages.theme.json" : "open-pages.plugin.json";
-      const extension = await readExtensionManifest(
-        join(finalDir, "node_modules", installed.packageName, manifestFile),
-      );
-      const addon: StoredAddon = {
-        id,
-        kind,
-        packageName: installed.packageName,
-        label: extension?.label ?? installed.displayName ?? installed.packageName,
-        description: extension?.description ?? installed.description ?? "用户安装的 Hexo 扩展",
-        source:
-          normalized.source.type === "github"
-            ? { ...normalized.source, packageName: installed.packageName }
-            : {
-                type: "npm",
-                packageName: installed.packageName,
-                version: installed.version,
-              },
-        settings: extension?.settings ?? [],
-        builtin: false,
-        enabled: kind === "plugin" ? true : undefined,
-        tint: extension?.tint,
-      };
+      const extension = await readInstalledExtension(finalDir, kind, installed.packageName);
+      const addon = storedFromInstall(kind, installed, normalized, extension);
       report("register", "写入扩展列表", 94);
       index.addons.push(addon);
       await writeIndex(owner, index);
       report("done", `${addon.label} 安装完成`, 100);
       return publicAddon(addon);
     } finally {
-      if (!moved) await rm(staging, { recursive: true, force: true });
+      if (!moved && staging) await rm(staging, { recursive: true, force: true });
     }
   });
 }
+
+  async function updateAddon(
+    owner: string,
+    id: string,
+    onProgress: ProgressReporter = () => {},
+  ): Promise<AddonManifest> {
+    const report = (stage: InstallProgress["stage"], label: string, percent: number) =>
+      reportProgress(onProgress, stage, label, percent);
+
+    if (BUILTIN_ADDONS.some((addon) => addon.id === id)) {
+      throw new Error("Built-in addons cannot be updated");
+    }
+
+    report("resolve", "解析安装来源", 4);
+    return withInstallGate(owner, async () => {
+      const index = await readIndex(owner);
+      const existing = index.addons.find((addon) => addon.id === id);
+      if (!existing) throw new Error("Addon not found");
+      const normalized = normalizeSource(sourceSpecFromAddon(existing));
+      let moved = false;
+      let staging = "";
+      try {
+        const fetched = await fetchAddonStaging(owner, normalized, report);
+        staging = fetched.staging;
+        const installed = fetched.installed;
+        const kind = existing.kind;
+        assertPackageKind(installed.packageName, kind);
+        const nextId = addonId(installed.packageName);
+        if (nextId !== existing.id || installed.packageName !== existing.packageName) {
+          throw new Error(
+            `Update changed the package (${existing.packageName} → ${installed.packageName})`,
+          );
+        }
+
+        const finalDir = await placeAddonPackage(owner, existing.id, staging);
+        moved = true;
+        const extension = await readInstalledExtension(finalDir, kind, installed.packageName);
+        const addon = storedFromInstall(kind, installed, normalized, extension, existing);
+        const at = index.addons.findIndex((item) => item.id === existing.id);
+        index.addons[at] = addon;
+        report("register", "写入扩展列表", 94);
+        await writeIndex(owner, index);
+        if (kind === "theme") await invalidateThemeCopies(owner, existing.id);
+        report("done", `${addon.label} 已更新`, 100);
+        return publicAddon(addon);
+      } finally {
+        if (!moved && staging) await rm(staging, { recursive: true, force: true });
+      }
+    });
+  }
 
   async function setAddonEnabled(
   owner: string,
@@ -386,6 +492,14 @@ function sameSource(
     return left.repo.toLowerCase() === right.repo.toLowerCase() && left.ref === right.ref;
   }
   return left.packageName === right.packageName;
+}
+
+function sourceSpecFromAddon(addon: AddonManifest): string {
+  if (addon.source.type === "github") {
+    return addon.source.ref ? `${addon.source.repo}#${addon.source.ref}` : addon.source.repo;
+  }
+  if (addon.source.type === "npm") return addon.source.packageName;
+  throw new Error("Built-in addons cannot be updated");
 }
 
 function normalizeSource(source: string): {
@@ -851,6 +965,7 @@ async function withInstallGate<T>(owner: string, task: () => Promise<T>): Promis
     listAddons,
     resolveGenerationAddons,
     installAddon,
+    updateAddon,
     setAddonEnabled,
     removeAddon,
   };

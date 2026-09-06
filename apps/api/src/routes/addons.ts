@@ -9,6 +9,7 @@ import {
   listAddons,
   removeAddon,
   setAddonEnabled,
+  updateAddon,
 } from "../lib/addons.js";
 import { createRateLimiter, requestIp } from "../lib/rate-limit.js";
 import { env } from "../env.js";
@@ -54,6 +55,39 @@ addonRoutes.post("/install", async (c) => {
       await send({
         type: "error",
         error: error instanceof Error ? error.message : "安装失败",
+      });
+    }
+  });
+});
+
+addonRoutes.post("/:id/update", async (c) => {
+  const session = c.get("session");
+  if (!session.userId && !env.allowGuestAddons) {
+    throw new ClientError("Sign in before installing third-party addons", 401);
+  }
+  const owner = ownerKey(session);
+  const budget = installLimiter.check(owner);
+  const ipBudget = installIpLimiter.check(requestIp(c));
+  if (!budget.ok || !ipBudget.ok) throw new ClientError("Too many addon installs, try again shortly", 429);
+  const id = c.req.param("id");
+  if (!isThemeId(id)) throw new ClientError("Invalid addon id");
+
+  if (!c.req.header("accept")?.includes("text/event-stream")) {
+    return c.json({ addon: await updateAddon(owner, id) });
+  }
+
+  return streamSSE(c, async (stream) => {
+    const send = (payload: Record<string, unknown>) =>
+      stream.writeSSE({ data: JSON.stringify(payload) });
+    try {
+      const addon = await updateAddon(owner, id, (progress) => {
+        void send({ type: "progress", ...progress });
+      });
+      await send({ type: "done", addon });
+    } catch (error) {
+      await send({
+        type: "error",
+        error: error instanceof Error ? error.message : "更新失败",
       });
     }
   });

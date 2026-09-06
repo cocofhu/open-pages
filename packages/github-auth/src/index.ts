@@ -2,7 +2,20 @@ import { createHash, randomBytes } from "node:crypto";
 
 export const GITHUB_OAUTH_AUTHORIZE = "https://github.com/login/oauth/authorize";
 export const GITHUB_OAUTH_TOKEN = "https://github.com/login/oauth/access_token";
+export const GITHUB_DEVICE_CODE = "https://github.com/login/device/code";
+export const GITHUB_DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 export const GITHUB_OAUTH_SCOPE = "repo read:user";
+
+/** Public OAuth App client id. Desktop releases and local `pnpm dev` share this. */
+export const OFFICIAL_GITHUB_CLIENT_ID = "Ov23liIsiGaGTn9IzJI6";
+
+export function resolveGithubClientId(env: Record<string, string | undefined> = process.env): string {
+  for (const key of ["GITHUB_CLIENT_ID", "OPEN_PAGES_GITHUB_CLIENT_ID"] as const) {
+    const value = env[key]?.trim();
+    if (value) return value;
+  }
+  return OFFICIAL_GITHUB_CLIENT_ID;
+}
 
 export interface PkcePair {
   verifier: string;
@@ -29,6 +42,21 @@ export interface GitHubUser {
   name: string;
   avatarUrl: string;
 }
+
+export interface DeviceCodeResponse {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export type DevicePollResult =
+  | { status: "token"; accessToken: string; tokenType: string; scope: string }
+  | { status: "pending" }
+  | { status: "slow_down" }
+  | { status: "error"; code: string; message: string };
 
 export function base64Url(buffer: Buffer | Uint8Array): string {
   return Buffer.from(buffer)
@@ -92,6 +120,87 @@ export async function exchangeCode(options: {
     accessToken: data.access_token,
     tokenType: data.token_type ?? "bearer",
     scope: data.scope ?? "",
+  };
+}
+
+export async function requestDeviceCode(
+  clientId: string,
+  options?: { fetchImpl?: typeof fetch; scope?: string },
+): Promise<DeviceCodeResponse> {
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  const response = await fetchImpl(GITHUB_DEVICE_CODE, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      scope: options?.scope ?? GITHUB_OAUTH_SCOPE,
+    }),
+  });
+  const data = (await response.json()) as {
+    device_code?: string;
+    user_code?: string;
+    verification_uri?: string;
+    verification_uri_complete?: string;
+    expires_in?: number;
+    interval?: number;
+    error?: string;
+    error_description?: string;
+  };
+  if (!data.device_code || !data.user_code) {
+    throw new Error(data.error_description ?? data.error ?? "GitHub device login failed");
+  }
+  return {
+    deviceCode: data.device_code,
+    userCode: data.user_code,
+    verificationUri: data.verification_uri ?? "https://github.com/login/device",
+    verificationUriComplete: data.verification_uri_complete,
+    expiresIn: data.expires_in ?? 900,
+    interval: Math.max(data.interval ?? 5, 5),
+  };
+}
+
+export async function pollDeviceToken(
+  clientId: string,
+  deviceCode: string,
+  options?: { fetchImpl?: typeof fetch },
+): Promise<DevicePollResult> {
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  const response = await fetchImpl(GITHUB_OAUTH_TOKEN, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      device_code: deviceCode,
+      grant_type: GITHUB_DEVICE_GRANT,
+    }),
+  });
+  const data = (await response.json()) as {
+    access_token?: string;
+    token_type?: string;
+    scope?: string;
+    error?: string;
+    error_description?: string;
+  };
+  if (data.access_token) {
+    return {
+      status: "token",
+      accessToken: data.access_token,
+      tokenType: data.token_type ?? "bearer",
+      scope: data.scope ?? "",
+    };
+  }
+  if (data.error === "authorization_pending") return { status: "pending" };
+  if (data.error === "slow_down") return { status: "slow_down" };
+  return {
+    status: "error",
+    code: data.error ?? "error",
+    message: data.error_description ?? data.error ?? "GitHub OAuth exchange failed",
   };
 }
 

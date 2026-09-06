@@ -6,12 +6,13 @@ import { platform } from "../lib/platform";
 
 interface RepoOnboardingProps {
   user: AuthUser | null;
+  device?: { userCode: string; verificationUri: string } | null;
   onLogin: () => void;
   onSessionStale: () => void;
   onPick: (opts: { repo: string; createRepo?: boolean }) => void;
 }
 
-export function RepoOnboarding({ user, onLogin, onSessionStale, onPick }: RepoOnboardingProps) {
+export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }: RepoOnboardingProps) {
   const [repos, setRepos] = useState<GithubRepo[]>([]);
   const [repo, setRepo] = useState("");
   const [createNew, setCreateNew] = useState(false);
@@ -58,12 +59,32 @@ export function RepoOnboarding({ user, onLogin, onSessionStale, onPick }: RepoOn
             <div className="publish-login-mark" aria-hidden="true">
               <GitHubMark className="publish-login-icon" />
             </div>
-            <h3>连接 GitHub</h3>
-            <p className="hint">先登录，才能读取你的仓库并同步到本机。</p>
-            <button type="button" className="primary icon-label" onClick={onLogin}>
-              <GitHubMark className="ui-icon" />
-              登录 GitHub
-            </button>
+            {device ? (
+              <div data-testid="device-login">
+                <h3>在 GitHub 输入验证码</h3>
+                <p className="device-user-code" data-testid="device-user-code">
+                  {device.userCode}
+                </p>
+                <p className="hint">打开 GitHub 设备页，输入上面的代码完成登录。正在等待授权…</p>
+                <button
+                  type="button"
+                  className="primary icon-label"
+                  onClick={() => window.open(device.verificationUri, "_blank", "noopener,noreferrer")}
+                >
+                  <GitHubMark className="ui-icon" />
+                  打开 GitHub
+                </button>
+              </div>
+            ) : (
+              <>
+                <h3>连接 GitHub</h3>
+                <p className="hint">先登录，才能读取你的仓库并同步到本机。</p>
+                <button type="button" className="primary icon-label" onClick={onLogin}>
+                  <GitHubMark className="ui-icon" />
+                  登录 GitHub
+                </button>
+              </>
+            )}
           </section>
         ) : (
           <>

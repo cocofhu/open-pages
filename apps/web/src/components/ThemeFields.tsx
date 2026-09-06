@@ -11,6 +11,8 @@ import {
   type ThemeSettings,
 } from "@open-pages/shared";
 
+export type ThemeChangeOptions = { preview?: boolean };
+
 export function ThemeSettingsForm({
   fields,
   settings,
@@ -18,7 +20,7 @@ export function ThemeSettingsForm({
 }: {
   fields: ThemeSettingField[];
   settings: ThemeSettings;
-  onChange: (settings: ThemeSettings) => void;
+  onChange: (settings: ThemeSettings, options?: ThemeChangeOptions) => void;
 }) {
   const groups = groupFields(fields);
   return (
@@ -31,7 +33,7 @@ export function ThemeSettingsForm({
               key={field.key}
               field={field}
               value={settings[field.key] ?? field.default}
-              onChange={(value) => onChange({ ...settings, [field.key]: value })}
+              onChange={(value, options) => onChange({ ...settings, [field.key]: value }, options)}
             />
           ))}
         </section>
@@ -47,7 +49,7 @@ function ThemeField({
 }: {
   field: ThemeSettingField;
   value: ThemeSettingValue;
-  onChange: (value: ThemeSettingValue) => void;
+  onChange: (value: ThemeSettingValue, options?: ThemeChangeOptions) => void;
 }) {
   if (field.type === "list") {
     return (
@@ -150,13 +152,13 @@ function ListField({
 }: {
   field: Extract<ThemeSettingField, { type: "list" }>;
   value: ThemeListItem[];
-  onChange: (value: ThemeListItem[]) => void;
+  onChange: (value: ThemeListItem[], options?: ThemeChangeOptions) => void;
 }) {
   const maxItems = listFieldMaxItems(field);
   const minItems = listFieldMinItems(field);
   const fixed = minItems > 0 && minItems === maxItems;
-  const update = (index: number, next: ThemeListItem) => {
-    onChange(value.map((item, i) => (i === index ? next : item)));
+  const update = (index: number, next: ThemeListItem, options?: ThemeChangeOptions) => {
+    onChange(value.map((item, i) => (i === index ? next : item)), options);
   };
   const move = (index: number, dir: -1 | 1) => {
     const target = index + dir;
@@ -209,7 +211,7 @@ function ListField({
               field={itemField}
               item={item}
               testId={`${field.key}-${index}-${itemField.key}`}
-              onChange={(next) => update(index, next)}
+              onChange={(next, options) => update(index, next, options)}
             />
           ))}
         </article>
@@ -238,7 +240,7 @@ function ListItemField({
   field: ThemeListItemField;
   item: ThemeListItem;
   testId: string;
-  onChange: (item: ThemeListItem) => void;
+  onChange: (item: ThemeListItem, options?: ThemeChangeOptions) => void;
 }) {
   const text = typeof item[field.key] === "string" ? (item[field.key] as string) : "";
   if (field.type === "annotated-text") {
@@ -252,8 +254,8 @@ function ListItemField({
         text={text}
         tips={tips}
         testId={testId}
-        onChange={(nextText, nextTips) =>
-          onChange({ ...item, [field.key]: nextText, [field.tipsKey]: nextTips })
+        onChange={(nextText, nextTips, options) =>
+          onChange({ ...item, [field.key]: nextText, [field.tipsKey]: nextTips }, options)
         }
       />
     );
@@ -284,11 +286,23 @@ function AnnotatedTextField({
   text: string;
   tips: ThemeHoverTip[];
   testId: string;
-  onChange: (text: string, tips: ThemeHoverTip[]) => void;
+  onChange: (text: string, tips: ThemeHoverTip[], options?: ThemeChangeOptions) => void;
 }) {
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState(text);
   const [draftTip, setDraftTip] = useState("");
   const [selection, setSelection] = useState("");
+
+  useEffect(() => {
+    setDraft(text);
+  }, [text]);
+
+  const visibleTips = tips.filter((item) => draft.includes(item.match));
+
+  const commitDraft = () => {
+    if (draft === text) return;
+    onChange(draft, visibleTips, { preview: false });
+  };
 
   const captureSelection = () => {
     const area = areaRef.current;
@@ -300,19 +314,20 @@ function AnnotatedTextField({
   const addTip = () => {
     const match = selection.trim();
     const tip = draftTip.trim();
-    if (!match || !tip || !text.includes(match)) return;
-    const next = tips.some((item) => item.match === match)
-      ? tips.map((item) => (item.match === match ? { match, tip } : item))
-      : [...tips, { match, tip }];
-    onChange(text, next);
+    if (!match || !tip || !draft.includes(match)) return;
+    const next = visibleTips.some((item) => item.match === match)
+      ? visibleTips.map((item) => (item.match === match ? { match, tip } : item))
+      : [...visibleTips, { match, tip }];
+    onChange(draft, next, { preview: false });
     setDraftTip("");
     setSelection("");
   };
 
   const updateTip = (index: number, patch: Partial<ThemeHoverTip>) => {
     onChange(
-      text,
-      tips.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+      draft,
+      visibleTips.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+      { preview: false },
     );
   };
 
@@ -323,24 +338,19 @@ function AnnotatedTextField({
         <textarea
           ref={areaRef}
           data-testid={`theme-setting-${testId}-text`}
-          value={text}
+          value={draft}
           placeholder={placeholder}
           rows={4}
           onSelect={captureSelection}
           onKeyUp={captureSelection}
           onMouseUp={captureSelection}
-          onChange={(event) => {
-            const next = event.target.value;
-            onChange(
-              next,
-              tips.filter((item) => next.includes(item.match)),
-            );
-          }}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commitDraft}
         />
       </label>
-      {text ? (
+      {draft ? (
         <p className="studio-annotated-preview" aria-hidden="true">
-          {previewAnnotated(text, tips)}
+          {previewAnnotated(draft, visibleTips)}
         </p>
       ) : null}
       <div className="studio-annotated-add">
@@ -376,7 +386,7 @@ function AnnotatedTextField({
               testId={testId}
               index={index}
               onCommit={(next) => updateTip(index, next)}
-              onDelete={() => onChange(text, tips.filter((_, i) => i !== index))}
+              onDelete={() => onChange(draft, visibleTips.filter((_, i) => i !== index), { preview: false })}
             />
           ))}
         </ul>

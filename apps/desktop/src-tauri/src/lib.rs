@@ -723,6 +723,11 @@ async fn remove_addon(id: String) -> Result<Value, String> {
     control_request(reqwest::Method::DELETE, &format!("/addons/{id}"), None).await
 }
 
+#[tauri::command]
+async fn update_addon(id: String) -> Result<Value, String> {
+    control_request(reqwest::Method::POST, &format!("/addons/{id}/update"), None).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -748,7 +753,8 @@ pub fn run() {
             list_addons,
             install_addon,
             set_addon_enabled,
-            remove_addon
+            remove_addon,
+            update_addon
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

@@ -176,6 +176,15 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
       sendJson(res, 200, { addons: await desktopAddons.listAddons(DESKTOP_ADDON_OWNER, kind) });
       return;
     }
+    const addonUpdate = url.pathname.match(/^\/addons\/([^/]+)\/update$/);
+    if (req.method === "POST" && addonUpdate) {
+      const addon = await desktopAddons.updateAddon(
+        DESKTOP_ADDON_OWNER,
+        decodeURIComponent(addonUpdate[1]),
+      );
+      sendJson(res, 200, { addon });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/addons/install") {
       const body = await readJson<{ source?: string; kind?: AddonKind }>(req);
       if (typeof body.source !== "string" || !body.source.trim()) {

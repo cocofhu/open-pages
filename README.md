@@ -64,12 +64,12 @@ sudo apt install pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev librsvg2-dev libs
 桌面端用 GitHub **Device Flow** 登录（只需 Client ID，不需要 Client Secret）。浏览器会打开设备授权页，按页面提示输入一次性代码即可。
 
 ```bash
-cp apps/desktop/.env.example apps/desktop/.env
-# 写入 GITHUB_CLIENT_ID
-export GITHUB_CLIENT_ID=your-client-id
 pnpm install
 pnpm dev:desktop
 ```
+
+官方 Client ID 已内置。要换自己的 OAuth App 时再设置 `GITHUB_CLIENT_ID` 或
+`OPEN_PAGES_GITHUB_CLIENT_ID`。
 
 登录时会打开系统浏览器完成 GitHub 授权，回调到本机 `127.0.0.1:3847`。Token 优先写入系统钥匙串；Linux 无 Secret Service 时回退到 `~/.open-pages/secrets.json`（0600）。
 
@@ -166,12 +166,11 @@ for writing」——点 Abort 等于什么都没装，点 Ignore 会留下半新
 - sidecar 收到 `OPEN_PAGES_PARENT_PID`，父进程一没了就连着自己的子进程一起退出，不再留
   孤儿锁住安装目录。
 
-## Web 开发（legacy Auth）
+## Web 开发
 
 需要 Node 20+ 与 pnpm 10。
 
 ```bash
-cp .env.example apps/api/.env
 pnpm install
 pnpm dev
 ```
@@ -179,6 +178,10 @@ pnpm dev
 - 编辑器：http://localhost:5173
 - API：http://localhost:8787
 - 预览：http://localhost:8788
+
+点「登录 GitHub」会走 Device Flow：浏览器打开 GitHub 设备授权页，输入一次性
+验证码即可。官方 Client ID 已内置，本地不用再配 Client Secret；若要换自己的
+OAuth App，设置 `GITHUB_CLIENT_ID` 或 `OPEN_PAGES_GITHUB_CLIENT_ID` 即可覆盖。
 
 预览单独占一个源。生成出来的站点会执行主题自带的脚本，而主题是第三方代码，
 放在独立源上它就拿不到编辑器的会话 cookie，也够不着编辑器的 DOM。预览地址里
@@ -188,13 +191,6 @@ pnpm dev
 ```bash
 pnpm test:e2e
 ```
-
-Web 版 GitHub 登录仍走服务端 OAuth（legacy）：
-
-- Homepage：`http://localhost:5173`
-- Callback：`http://localhost:5173/auth/github/callback`
-
-把 Client ID / Secret 写入 `apps/api/.env`。未配置时仍可本地写作与（本机 API 可用时）Hexo 预览，但不能从浏览器发布。
 
 ## 发布流程
 

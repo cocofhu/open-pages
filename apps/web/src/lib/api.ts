@@ -24,6 +24,14 @@ export interface AuthUser {
   githubEnabled: boolean;
 }
 
+export interface DeviceLoginStart {
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  interval: number;
+  expiresIn: number;
+}
+
 export interface GithubRepo {
   id: number;
   name: string;
@@ -43,16 +51,17 @@ export interface InstallStep {
  * Installs run for tens of seconds, so the API streams stage updates over SSE
  * instead of leaving the UI blocked on a single response.
  */
-async function installAddon(
-  source: string,
-  kind: AddonKind,
-  onProgress?: (step: InstallStep) => void,
+async function streamAddonAction(
+  path: string,
+  body: Record<string, unknown> | undefined,
+  onProgress: ((step: InstallStep) => void) | undefined,
+  interrupted: string,
 ): Promise<{ addon: AddonManifest }> {
-  const response = await fetch("/addons/install", {
+  const response = await fetch(path, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-    body: JSON.stringify({ source, kind }),
+    body: body ? JSON.stringify(body) : "{}",
   });
   if (!response.ok || !response.body) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
@@ -86,22 +95,77 @@ async function installAddon(
       };
       if (event.type === "progress") onProgress?.({ label: event.label ?? "", percent: event.percent ?? 0 });
       if (event.type === "done" && event.addon) installed = event.addon;
-      if (event.type === "error") failure = event.error ?? "安装失败";
+      if (event.type === "error") failure = event.error ?? interrupted;
     }
   }
 
   if (failure) throw new Error(failure);
-  if (!installed) throw new Error("安装中断，请重试");
+  if (!installed) throw new Error(interrupted);
   return { addon: installed };
+}
+
+async function installAddon(
+  source: string,
+  kind: AddonKind,
+  onProgress?: (step: InstallStep) => void,
+): Promise<{ addon: AddonManifest }> {
+  return streamAddonAction(
+    "/addons/install",
+    { source, kind },
+    onProgress,
+    "安装中断，请重试",
+  );
+}
+
+async function updateAddon(
+  id: string,
+  onProgress?: (step: InstallStep) => void,
+): Promise<{ addon: AddonManifest }> {
+  return streamAddonAction(
+    `/addons/${encodeURIComponent(id)}/update`,
+    undefined,
+    onProgress,
+    "更新中断，请重试",
+  );
+}
+
+async function pollDeviceLogin(): Promise<{ status: "pending" | "slow_down" | "ok"; user?: AuthUser }> {
+  const response = await fetch("/auth/github/device/poll", {
+    method: "POST",
+    credentials: "include",
+  });
+  const data = (await response.json().catch(() => ({}))) as AuthUser & {
+    status?: string;
+    error?: string;
+  };
+  if (response.status === 202) {
+    return { status: data.status === "slow_down" ? "slow_down" : "pending" };
+  }
+  if (!response.ok) {
+    throw new Error(data.error || response.statusText);
+  }
+  return {
+    status: "ok",
+    user: {
+      guestId: data.guestId,
+      login: data.login,
+      name: data.name,
+      avatarUrl: data.avatarUrl,
+      githubEnabled: data.githubEnabled,
+    },
+  };
 }
 
 export const api = {
   me: () => request<AuthUser>("/auth/me"),
+  startDeviceLogin: () => request<DeviceLoginStart>("/auth/github/device", { method: "POST" }),
+  pollDeviceLogin,
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
   addons: (kind?: AddonKind) =>
     request<{ addons: AddonManifest[] }>(`/addons${kind ? `?kind=${kind}` : ""}`),
   installAddon: (source: string, kind: AddonKind, onProgress?: (step: InstallStep) => void) =>
     installAddon(source, kind, onProgress),
+  updateAddon: (id: string, onProgress?: (step: InstallStep) => void) => updateAddon(id, onProgress),
   setAddonEnabled: (id: string, enabled: boolean) =>
     request<{ addon: AddonManifest }>(`/addons/${encodeURIComponent(id)}`, {
       method: "PATCH",

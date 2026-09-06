@@ -119,11 +119,44 @@ button {
   width: min(520px, 100%);
 }
 
+.settings-repo-name {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
 .settings-repo-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 8px 0 18px;
+  margin-top: 4px;
+}
+
+.settings-repo-actions .primary,
+.settings-repo-actions .ghost {
+  justify-content: center;
+  min-height: 38px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settings-repo-actions .primary {
+  background: var(--ink);
+  color: var(--accent-ink);
+}
+
+.settings-repo-actions .ghost {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 55%, var(--paper));
+}
+
+.settings-repo-actions .ghost:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--paper));
 }
 
 .shell {
@@ -2220,10 +2253,16 @@ li + li > .outline-item.level-1 {
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
-.theme-remove {
+.theme-card-actions {
   position: absolute;
   right: 8px;
   bottom: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.theme-card-actions .icon-btn,
+.theme-remove {
   width: 26px;
   height: 26px;
   background: color-mix(in srgb, #fff 90%, transparent);
@@ -2912,7 +2951,27 @@ li + li > .outline-item.level-1 {
 }
 
 .publish-login .primary {
-  margin-top: 8px;
+  margin-top: 12px;
+  min-width: 220px;
+  justify-content: center;
+  padding: 12px 22px;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.publish-login a.primary,
+.publish-login a.primary:hover,
+.publish-login a.primary:visited {
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+
+.device-user-code {
+  margin: 8px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 28px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
 }
 
 .publish-account {

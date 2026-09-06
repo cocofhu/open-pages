@@ -45,6 +45,18 @@ export async function installAddon(
   }
 }
 
+export async function updateAddon(
+  owner: string,
+  id: string,
+  onProgress?: (progress: InstallProgress) => void,
+): Promise<AddonManifest> {
+  try {
+    return await store.updateAddon(owner, id, onProgress);
+  } catch (error) {
+    return wrap(error);
+  }
+}
+
 export async function setAddonEnabled(
   owner: string,
   id: string,

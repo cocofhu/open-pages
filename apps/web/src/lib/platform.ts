@@ -35,12 +35,26 @@ export const platform = {
     return invoke<AuthUser>("github_get_session");
   },
 
-  async login(): Promise<AuthUser | null> {
-    if (!isTauri()) {
-      window.location.href = "/auth/github";
-      return null;
+  async login(opts?: {
+    onCode?: (userCode: string, verificationUri: string) => void;
+  }): Promise<AuthUser | null> {
+    if (isTauri()) {
+      return invoke<AuthUser>("github_login");
     }
-    return invoke<AuthUser>("github_login");
+    const started = await api.startDeviceLogin();
+    opts?.onCode?.(
+      started.userCode,
+      started.verificationUriComplete || started.verificationUri,
+    );
+    let intervalMs = Math.max(started.interval, 5) * 1000;
+    const deadline = Date.now() + Math.min(started.expiresIn, 900) * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+      const result = await api.pollDeviceLogin();
+      if (result.status === "ok" && result.user) return result.user;
+      if (result.status === "slow_down") intervalMs += 5000;
+    }
+    throw new Error("GitHub 登录码已过期，请重新登录。");
   },
 
   async logout(): Promise<AuthUser | null> {
@@ -109,6 +123,14 @@ export const platform = {
     onProgress?.({ label: "正在安装", percent: 12 });
     const result = await invoke<{ addon: AddonManifest }>("install_addon", { source, kind });
     onProgress?.({ label: "安装完成", percent: 100 });
+    return result;
+  },
+
+  async updateAddon(id: string, onProgress?: (step: InstallStep) => void) {
+    if (!isTauri()) return api.updateAddon(id, onProgress);
+    onProgress?.({ label: "正在更新", percent: 12 });
+    const result = await invoke<{ addon: AddonManifest }>("update_addon", { id });
+    onProgress?.({ label: "更新完成", percent: 100 });
     return result;
   },
 

@@ -22,6 +22,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { InstallStep } from "../lib/api";
 import { isTauri } from "../lib/platform";
+import { hasUnpublishedRepoChanges } from "../lib/repo-sync";
 import { LANGUAGE_OPTIONS, PERMALINK_PRESETS, timezoneOptions } from "../lib/site-options";
 import { ComboSelect } from "./ComboSelect";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -70,13 +71,13 @@ interface SettingsPageProps {
   onTab: (tab: SettingsTab) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onLoadTheme: (theme: ThemeId) => Promise<{ values: ThemeSettings; yaml: string }>;
-  onPreview: (draft: SettingsDraft) => void;
   onSave: (draft: SettingsDraft) => Promise<SettingsDraft>;
   onInstallAddon: (
     source: string,
     kind: AddonKind,
     onProgress: (step: InstallStep) => void,
   ) => Promise<void>;
+  onUpdateAddon: (id: string, onProgress: (step: InstallStep) => void) => Promise<void>;
   onToggleAddon: (id: string, enabled: boolean) => Promise<void>;
   onRemoveAddon: (id: string) => Promise<void>;
   onLoadPluginConfig: (
@@ -112,9 +113,9 @@ export function SettingsPage({
   onTab,
   onDirtyChange,
   onLoadTheme,
-  onPreview,
   onSave,
   onInstallAddon,
+  onUpdateAddon,
   onToggleAddon,
   onRemoveAddon,
   onLoadPluginConfig,
@@ -135,6 +136,8 @@ export function SettingsPage({
     [config.theme]: themeYaml,
   }));
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [resyncOpen, setResyncOpen] = useState(false);
+  const [repoDirty, setRepoDirty] = useState(false);
   const [addonSource, setAddonSource] = useState("");
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonError, setAddonError] = useState("");
@@ -143,7 +146,6 @@ export function SettingsPage({
   const [pluginValues, setPluginValues] = useState<ThemeSettings>({});
   const [pluginYaml, setPluginYaml] = useState("");
   const [pluginConfigBusy, setPluginConfigBusy] = useState(false);
-  const previewTimer = useRef<number | undefined>(undefined);
   const themeDraftsRef = useRef(themeDrafts);
   themeDraftsRef.current = themeDrafts;
 
@@ -169,27 +171,30 @@ export function SettingsPage({
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
-  const schedulePreview = (next: SettingsDraft) => {
-    if (previewTimer.current) window.clearTimeout(previewTimer.current);
-    previewTimer.current = window.setTimeout(() => onPreview(next), 650);
-  };
+  useEffect(() => {
+    if (!github) {
+      setRepoDirty(false);
+      return;
+    }
+    let cancelled = false;
+    void hasUnpublishedRepoChanges().then((next) => {
+      if (!cancelled) setRepoDirty(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [github, dirty]);
 
   const setSite = <K extends keyof SiteConfig>(key: K, value: SiteConfig[K]) => {
     const nextConfig = { ...draftConfig, [key]: value };
     const nextYaml = applySiteConfigToYaml(nextConfig, draftYaml);
     setDraftConfig(nextConfig);
     setDraftYaml(nextYaml);
-    schedulePreview({ ...draft, config: nextConfig, rawYaml: nextYaml });
   };
 
   const setThemeValues = (next: ThemeSettings) => {
     setDraftTheme(next);
     setThemeDrafts((current) => ({ ...current, [draftConfig.theme]: next }));
-    schedulePreview({
-      ...draft,
-      themeSettings: next,
-      themeDrafts: { ...themeDraftsRef.current, [draftConfig.theme]: next },
-    });
   };
 
   const pickTheme = (theme: ThemeId) => {
@@ -214,18 +219,6 @@ export function SettingsPage({
         [previous]: draftThemeYaml,
         [theme]: loaded.yaml,
       }));
-      schedulePreview({
-        config: nextConfig,
-        rawYaml: nextYaml,
-        themeSettings: values,
-        themeYaml: loaded.yaml,
-        themeDrafts: { ...themeDraftsRef.current, [previous]: draftTheme, [theme]: values },
-        themeYamlDrafts: {
-          ...themeYamlDrafts,
-          [previous]: draftThemeYaml,
-          [theme]: loaded.yaml,
-        },
-      });
     })();
   };
 
@@ -233,7 +226,6 @@ export function SettingsPage({
     setDraftYaml(value);
     const merged = mergeYamlIntoConfig(draftConfig, value);
     setDraftConfig(merged);
-    schedulePreview({ ...draft, config: merged, rawYaml: value });
   };
 
   const save = async () => {
@@ -257,7 +249,6 @@ export function SettingsPage({
 
   useEffect(() => {
     return () => {
-      if (previewTimer.current) window.clearTimeout(previewTimer.current);
       onDirtyChange?.(false);
     };
   }, [onDirtyChange]);
@@ -289,6 +280,20 @@ export function SettingsPage({
     } finally {
       setAddonBusy(false);
       // Keep a finished bar on screen briefly so the jump to 100% is visible.
+      window.setTimeout(() => setAddonStep(null), 1_200);
+    }
+  };
+
+  const submitUpdate = async (id: string) => {
+    setAddonBusy(true);
+    setAddonError("");
+    setAddonStep({ label: "正在准备", percent: 0 });
+    try {
+      await onUpdateAddon(id, setAddonStep);
+    } catch (error) {
+      setAddonError(error instanceof Error ? error.message : "更新失败");
+    } finally {
+      setAddonBusy(false);
       window.setTimeout(() => setAddonStep(null), 1_200);
     }
   };
@@ -380,19 +385,31 @@ export function SettingsPage({
 
           {tab === "site" ? (
             <div className="settings-pane-scroll">
-              <p className="hint">改完后点保存，站点信息和主题会一起写入。右侧可以先预览未保存的改动。</p>
+              <p className="hint">改完后点保存，站点信息和主题会一起写入，右侧才会重新生成。</p>
               {github ? (
-                <section className="studio-set-group">
+                <section className="studio-set-group settings-repo">
                   <h3>绑定仓库</h3>
+                  <p className="settings-repo-name">
+                    @{github.owner}/{github.repo}
+                  </p>
                   <p className="hint">
-                    当前站点同步自 @{github.owner}/{github.repo}。重新同步会更新 source/origin，并再装一遍主题和插件。
+                    {dirty || repoDirty
+                      ? "重新同步会用仓库覆盖本地文章和配置，还没发布的改动会丢掉。"
+                      : "已是最新版。"}
                   </p>
                   <div className="settings-repo-actions">
-                    <button type="button" className="ghost icon-label" onClick={onResyncRepo}>
+                    <button
+                      type="button"
+                      className="primary icon-label"
+                      onClick={() => {
+                        if (dirty || repoDirty) setResyncOpen(true);
+                        else onResyncRepo?.();
+                      }}
+                    >
                       <ArrowPathIcon className="ui-icon" aria-hidden="true" />
                       重新同步
                     </button>
-                    <button type="button" className="ghost" onClick={onChangeRepo}>
+                    <button type="button" className="ghost icon-label" onClick={onChangeRepo}>
                       更换仓库
                     </button>
                   </div>
@@ -445,7 +462,7 @@ export function SettingsPage({
             </div>
           ) : tab === "theme" ? (
             <div className="settings-pane-scroll">
-              <p className="hint">点选主题和外观后记得保存。右侧会先用当前草稿跑一次 Hexo。</p>
+              <p className="hint">点选主题和改文案后记得保存。保存时右侧才会重新 generate。</p>
               <AddonInstaller
                 kind="theme"
                 source={addonSource}
@@ -475,15 +492,27 @@ export function SettingsPage({
                         {on ? <em>使用中</em> : null}
                       </button>
                       {!item.builtin ? (
-                        <button
-                          type="button"
-                          className="theme-remove icon-btn"
-                          title={on ? "正在使用的主题不能卸载" : "卸载主题"}
-                          disabled={on}
-                          onClick={() => void mutateAddon(() => onRemoveAddon(item.id))}
-                        >
-                          <TrashIcon className="ui-icon" aria-hidden="true" />
-                        </button>
+                        <div className="theme-card-actions">
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="按原来源更新主题"
+                            disabled={addonBusy}
+                            data-testid={`theme-update-${item.id}`}
+                            onClick={() => void submitUpdate(item.id)}
+                          >
+                            <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="theme-remove icon-btn"
+                            title={on ? "正在使用的主题不能卸载" : "卸载主题"}
+                            disabled={on || addonBusy}
+                            onClick={() => void mutateAddon(() => onRemoveAddon(item.id))}
+                          >
+                            <TrashIcon className="ui-icon" aria-hidden="true" />
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                   );
@@ -514,14 +543,6 @@ export function SettingsPage({
                         ...current,
                         [draftConfig.theme]: yaml,
                       }));
-                      schedulePreview({
-                        ...draft,
-                        themeYaml: yaml,
-                        themeYamlDrafts: {
-                          ...themeYamlDrafts,
-                          [draftConfig.theme]: yaml,
-                        },
-                      });
                     }}
                   />
                 </label>
@@ -567,14 +588,27 @@ export function SettingsPage({
                       <i />
                     </button>
                     {!plugin.builtin ? (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="卸载插件"
-                        onClick={() => void mutateAddon(() => onRemoveAddon(plugin.id))}
-                      >
-                        <TrashIcon className="ui-icon" aria-hidden="true" />
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="按原来源更新插件"
+                          disabled={addonBusy}
+                          data-testid={`plugin-update-${plugin.id}`}
+                          onClick={() => void submitUpdate(plugin.id)}
+                        >
+                          <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="卸载插件"
+                          disabled={addonBusy}
+                          onClick={() => void mutateAddon(() => onRemoveAddon(plugin.id))}
+                        >
+                          <TrashIcon className="ui-icon" aria-hidden="true" />
+                        </button>
+                      </>
                     ) : null}
                   </article>
                 ))}
@@ -618,7 +652,7 @@ export function SettingsPage({
             </div>
           )}
           <footer className="settings-pane-foot">
-            <p className="hint">{dirty ? "站点信息和主题都还没写入本地。" : "已与本地保存的内容一致。"}</p>
+            <p className="hint">{dirty ? "改动还没保存，右侧仍是上一版。点保存后才会重生成。" : "已与本地保存的内容一致。"}</p>
             <button
               type="button"
               className="primary icon-label"
@@ -646,7 +680,7 @@ export function SettingsPage({
                 </div>
                 <p className="studio-loading-kicker">Hexo generate</p>
                 <h3>正在渲染 {meta.label}</h3>
-                <p className="studio-loading-copy">用当前草稿生成右侧预览，点保存才会写入本地。</p>
+                <p className="studio-loading-copy">正在用已保存的内容生成右侧预览。</p>
                 <div className="studio-loading-bar" aria-hidden="true">
                   <i />
                 </div>
@@ -670,8 +704,8 @@ export function SettingsPage({
             <div className="studio-cover">
               <div className="studio-error">
                 <p className="studio-loading-kicker">Hexo 预览</p>
-                <h3>右侧会马上看到效果</h3>
-                <p className="studio-loading-copy">点选左侧主题或改外观选项，这里会重新 generate 一次。</p>
+                <h3>保存后这里会更新</h3>
+                <p className="studio-loading-copy">改完左侧设置后点保存，这里会重新 generate 一次。</p>
               </div>
             </div>
           )}
@@ -702,6 +736,18 @@ export function SettingsPage({
         onConfirm={() => {
           setLeaveOpen(false);
           onClose();
+        }}
+      />
+      <ConfirmDialog
+        open={resyncOpen}
+        title="用仓库覆盖本地站点？"
+        message="会用 GitHub 上的文件覆盖本地文章、页面和配置，还没发布的改动会丢掉。"
+        confirmLabel="覆盖并同步"
+        danger
+        onClose={() => setResyncOpen(false)}
+        onConfirm={() => {
+          setResyncOpen(false);
+          onResyncRepo?.();
         }}
       />
     </div>

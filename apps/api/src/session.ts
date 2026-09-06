@@ -13,7 +13,11 @@ export interface SessionData {
   name?: string;
   avatarUrl?: string;
   accessToken?: string;
-  oauthState?: string;
+  deviceLogin?: {
+    deviceCode: string;
+    interval: number;
+    expiresAt: number;
+  };
 }
 
 const COOKIE = "op_session";

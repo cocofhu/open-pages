@@ -451,7 +451,8 @@ async function ensureTheme(siteDir: string, theme: ThemeId, sourceOverride?: str
   // the copy came from: a site rendered with the fallback has to be rebuilt
   // once the real package shows up again.
   const { dir: src, content, origin } = await themePackageSource(theme, sourceOverride);
-  const markerValue = `${theme}:${THEME_COPY_VERSION}:${origin}`;
+  const stamp = await themeSourceStamp(src);
+  const markerValue = `${theme}:${THEME_COPY_VERSION}:${origin}:${stamp}`;
   try {
     const existing = await readFile(marker, "utf8");
     if (existing.trim() === markerValue) return;
@@ -518,6 +519,24 @@ async function patchThemeCompatibility(themeDir: string, theme: ThemeId): Promis
     configPath,
     source.replace(legacy, "const link = (post.link || post.path || '').split('/').filter(i => i)"),
   );
+}
+
+async function themeSourceStamp(dir: string): Promise<string> {
+  try {
+    const pkg = join(dir, "package.json");
+    const info = await stat(pkg);
+    const raw = await readFile(pkg, "utf8").catch(() => "");
+    let version = "";
+    try {
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      if (typeof parsed.version === "string") version = parsed.version;
+    } catch {
+      // ignore malformed package.json
+    }
+    return `${version}@${Math.trunc(info.mtimeMs)}`;
+  } catch {
+    return "missing";
+  }
 }
 
 interface ThemeSource {

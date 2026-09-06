@@ -91,6 +91,10 @@ export function App() {
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<PreviewSession | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [devicePrompt, setDevicePrompt] = useState<{
+    userCode: string;
+    verificationUri: string;
+  } | null>(null);
   const [newDocOpen, setNewDocOpen] = useState(false);
   const [newDocKind, setNewDocKind] = useState<DocKind>("post");
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -666,13 +670,28 @@ export function App() {
 
   const login = () => {
     void platform
-      .login()
+      .login({
+        onCode: (userCode, verificationUri) => {
+          setDevicePrompt({ userCode, verificationUri });
+          setToast({
+            kind: "info",
+            text: "在 GitHub 输入验证码",
+            copyText: userCode,
+            suffix: "完成登录",
+            href: verificationUri,
+            linkText: "打开 GitHub",
+            sticky: true,
+          });
+        },
+      })
       .then((next) => {
         if (!next) return;
+        setDevicePrompt(null);
         setUser(next);
         setToast(next.login ? { kind: "ok", text: `已登录 GitHub：${next.login}` } : null);
       })
       .catch((error: unknown) => {
+        setDevicePrompt(null);
         setToast({ kind: "error", text: errorMessage(error, "登录失败") });
       });
   };
@@ -734,29 +753,32 @@ export function App() {
   };
 
   if (boot.phase !== "ready" || !config) {
-    if (boot.phase === "pick-repo") {
-      return (
-        <RepoOnboarding
-          user={user}
-          onLogin={login}
-          onSessionStale={refreshUser}
-          onPick={(opts) => void bindRepo(opts)}
-        />
-      );
-    }
     return (
-      <BootScreen
-        title={boot.label || "正在打开…"}
-        percent={boot.percent}
-        error={boot.error}
-        onRetry={() => {
-          if (github) {
-            void bindRepo({ repo: github.repo });
-            return;
-          }
-          setBoot({ phase: "pick-repo", label: "", percent: 0 });
-        }}
-      />
+      <>
+        {boot.phase === "pick-repo" ? (
+          <RepoOnboarding
+            user={user}
+            device={devicePrompt}
+            onLogin={login}
+            onSessionStale={refreshUser}
+            onPick={(opts) => void bindRepo(opts)}
+          />
+        ) : (
+          <BootScreen
+            title={boot.label || "正在打开…"}
+            percent={boot.percent}
+            error={boot.error}
+            onRetry={() => {
+              if (github) {
+                void bindRepo({ repo: github.repo });
+                return;
+              }
+              setBoot({ phase: "pick-repo", label: "", percent: 0 });
+            }}
+          />
+        )}
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
+      </>
     );
   }
 
@@ -866,10 +888,6 @@ export function App() {
             settingsDirtyRef.current = dirty;
           }}
           onLoadTheme={loadThemeSettings}
-          onPreview={(draft) => {
-            settingsDraftRef.current = draft;
-            void renderSettingsPreview(draft.config, draft);
-          }}
           onSave={saveSettings}
           onInstallAddon={async (source, kind, onProgress) => {
             const { addon } = await platform.installAddon(source, kind, onProgress);
@@ -877,6 +895,18 @@ export function App() {
             setAddons(refreshed.addons);
             setToast({ kind: "ok", text: `已安装 ${addon.label}` });
             if (kind === "plugin") void renderSettingsPreview(config);
+          }}
+          onUpdateAddon={async (id, onProgress) => {
+            const { addon } = await platform.updateAddon(id, onProgress);
+            const refreshed = await platform.addons();
+            setAddons(refreshed.addons);
+            setToast({ kind: "ok", text: `已更新 ${addon.label}` });
+            if (addon.kind === "theme" && addon.id === config.theme) {
+              const loaded = await loadThemeSettings(addon.id);
+              setThemeSettings(loaded.values);
+              setThemeYaml(loaded.yaml);
+            }
+            void renderSettingsPreview(config);
           }}
           onToggleAddon={async (id, enabled) => {
             await platform.setAddonEnabled(id, enabled);

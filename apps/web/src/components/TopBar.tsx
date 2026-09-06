@@ -101,7 +101,7 @@ export function TopBar({
             data-testid="btn-login"
             onClick={onLogin}
             disabled={user !== null && !user.githubEnabled}
-            title={user && !user.githubEnabled ? "在 apps/api/.env 配置 GitHub OAuth" : "使用 GitHub 登录"}
+            title="使用 GitHub 登录"
           >
             <GitHubMark className="ui-icon" />
             GitHub
