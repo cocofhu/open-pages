@@ -1,10 +1,35 @@
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { lstat, readFile, realpath } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
+import { createAddonStore } from "@open-pages/addons";
 import { assessRepoForPublish, createRepo, listRepos } from "@open-pages/github";
 import { localSiteDir, previewLocalSite, publishSite } from "@open-pages/publish";
-import { isSafeSiteId, parseRepoName, type SiteConfig, type SiteFile } from "@open-pages/shared";
+import {
+  DEFAULT_SITE_CONFIG,
+  isSafeSiteId,
+  parseRepoName,
+  parseSiteConfig,
+  type AddonKind,
+  type SiteConfig,
+  type SiteFile,
+} from "@open-pages/shared";
+
+const DESKTOP_ADDON_OWNER = "desktop";
+const desktopAddons = createAddonStore({
+  workspaceRoot: join(homedir(), ".open-pages"),
+  siteDirs: async () => {
+    const root = join(homedir(), ".open-pages", "sites");
+    const entries = await readdir(root).catch(() => [] as string[]);
+    return entries.filter((entry) => !entry.startsWith(".")).map((entry) => join(root, entry));
+  },
+});
+
+async function generationAddons(config?: unknown) {
+  const theme = parseSiteConfig(config ?? DEFAULT_SITE_CONFIG).theme;
+  return desktopAddons.resolveGenerationAddons(DESKTOP_ADDON_OWNER, theme);
+}
 
 const controlPort = Number(process.env.OPEN_PAGES_CONTROL_PORT ?? 3848);
 const previewPort = Number(process.env.OPEN_PAGES_PREVIEW_PORT ?? 8788);
@@ -137,6 +162,44 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
       sendJson(res, 200, check);
       return;
     }
+    if (req.method === "GET" && url.pathname === "/addons") {
+      const rawKind = url.searchParams.get("kind");
+      const kind = rawKind === "theme" || rawKind === "plugin" ? rawKind : undefined;
+      sendJson(res, 200, { addons: await desktopAddons.listAddons(DESKTOP_ADDON_OWNER, kind) });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/addons/install") {
+      const body = await readJson<{ source?: string; kind?: AddonKind }>(req);
+      if (typeof body.source !== "string" || !body.source.trim()) {
+        sendJson(res, 400, { error: "Addon source is required" });
+        return;
+      }
+      const kind = body.kind === "theme" || body.kind === "plugin" ? body.kind : undefined;
+      const addon = await desktopAddons.installAddon(DESKTOP_ADDON_OWNER, body.source, kind);
+      sendJson(res, 200, { addon });
+      return;
+    }
+    const addonId = url.pathname.match(/^\/addons\/([^/]+)$/);
+    if (addonId && req.method === "PATCH") {
+      const body = await readJson<{ enabled?: unknown }>(req);
+      if (typeof body.enabled !== "boolean") {
+        sendJson(res, 400, { error: "enabled must be boolean" });
+        return;
+      }
+      sendJson(res, 200, {
+        addon: await desktopAddons.setAddonEnabled(
+          DESKTOP_ADDON_OWNER,
+          decodeURIComponent(addonId[1]),
+          body.enabled,
+        ),
+      });
+      return;
+    }
+    if (addonId && req.method === "DELETE") {
+      await desktopAddons.removeAddon(DESKTOP_ADDON_OWNER, decodeURIComponent(addonId[1]));
+      sendJson(res, 200, { ok: true });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/preview") {
       const body = await readJson<{ siteId: string; files: SiteFile[]; config?: SiteConfig }>(req);
       const result = await previewLocalSite({
@@ -144,6 +207,7 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
         files: body.files ?? [],
         config: body.config,
         previewOrigin,
+        addons: await generationAddons(body.config),
       });
       sendJson(res, 200, { ok: true, elapsedMs: result.elapsedMs, url: result.url });
       return;
@@ -166,6 +230,7 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
         owner: body.owner,
         repo: body.repo,
         createRepo: body.createRepo,
+        addons: await generationAddons(body.config),
       });
       sendJson(res, 200, { ok: true, ...result });
       return;

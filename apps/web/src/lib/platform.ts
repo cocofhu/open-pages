@@ -1,5 +1,4 @@
 import {
-  BUILTIN_ADDONS,
   type AddonKind,
   type AddonManifest,
   type SiteConfig,
@@ -54,8 +53,7 @@ export const platform = {
 
   async addons(kind?: AddonKind): Promise<{ addons: AddonManifest[] }> {
     if (!isTauri()) return api.addons(kind);
-    const addons = kind ? BUILTIN_ADDONS.filter((addon) => addon.kind === kind) : BUILTIN_ADDONS;
-    return { addons };
+    return invoke<{ addons: AddonManifest[] }>("list_addons", kind ? { kind } : {});
   },
 
   async preview(siteId: string, files: SiteFile[], config: SiteConfig) {
@@ -99,18 +97,21 @@ export const platform = {
   },
 
   async installAddon(source: string, kind: AddonKind, onProgress?: (step: InstallStep) => void) {
-    if (isTauri()) throw new Error("桌面版暂不支持安装扩展");
-    return api.installAddon(source, kind, onProgress);
+    if (!isTauri()) return api.installAddon(source, kind, onProgress);
+    onProgress?.({ label: "正在安装", percent: 12 });
+    const result = await invoke<{ addon: AddonManifest }>("install_addon", { source, kind });
+    onProgress?.({ label: "安装完成", percent: 100 });
+    return result;
   },
 
   async setAddonEnabled(id: string, enabled: boolean) {
-    if (isTauri()) throw new Error("桌面版暂不支持安装扩展");
-    return api.setAddonEnabled(id, enabled);
+    if (!isTauri()) return api.setAddonEnabled(id, enabled);
+    return invoke<{ addon: AddonManifest }>("set_addon_enabled", { id, enabled });
   },
 
   async removeAddon(id: string) {
-    if (isTauri()) throw new Error("桌面版暂不支持安装扩展");
-    return api.removeAddon(id);
+    if (!isTauri()) return api.removeAddon(id);
+    return invoke<{ ok: boolean }>("remove_addon", { id });
   },
 
   async openSiteDir(siteId: string, path?: string): Promise<void> {

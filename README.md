@@ -74,6 +74,7 @@ pnpm dev:desktop
 登录时会打开系统浏览器完成 GitHub 授权，回调到本机 `127.0.0.1:3847`。Token 优先写入系统钥匙串；Linux 无 Secret Service 时回退到 `~/.open-pages/secrets.json`（0600）。
 
 本地站点目录：`~/.open-pages/sites/<siteId>/`。预览由桌面 runtime 提供在 `http://127.0.0.1:8788`。
+设置页可安装 npm / 公开 GitHub 主题和插件，扩展保存在 `~/.open-pages/desktop/.addon-store/`。
 
 ```bash
 pnpm test:github-auth

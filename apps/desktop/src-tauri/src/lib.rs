@@ -676,6 +676,42 @@ async fn check_repo_publish(owner: String, repo: String, site_id: String) -> Res
     .await
 }
 
+#[tauri::command]
+async fn list_addons(kind: Option<String>) -> Result<Value, String> {
+    let path = match kind.as_deref() {
+        Some("theme") => "/addons?kind=theme",
+        Some("plugin") => "/addons?kind=plugin",
+        _ => "/addons",
+    };
+    control_request(reqwest::Method::GET, path, None).await
+}
+
+#[tauri::command]
+async fn install_addon(source: String, kind: Option<String>) -> Result<Value, String> {
+    let mut body = serde_json::json!({ "source": source });
+    if let Some(kind) = kind {
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("kind".into(), Value::String(kind));
+        }
+    }
+    control_request(reqwest::Method::POST, "/addons/install", Some(body)).await
+}
+
+#[tauri::command]
+async fn set_addon_enabled(id: String, enabled: bool) -> Result<Value, String> {
+    control_request(
+        reqwest::Method::PATCH,
+        &format!("/addons/{id}"),
+        Some(serde_json::json!({ "enabled": enabled })),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn remove_addon(id: String) -> Result<Value, String> {
+    control_request(reqwest::Method::DELETE, &format!("/addons/{id}"), None).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -696,7 +732,11 @@ pub fn run() {
             publish_site,
             list_repos,
             create_repo,
-            check_repo_publish
+            check_repo_publish,
+            list_addons,
+            install_addon,
+            set_addon_enabled,
+            remove_addon
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

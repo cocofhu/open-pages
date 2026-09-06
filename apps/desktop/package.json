@@ -1,6 +1,6 @@
 {
   "name": "@open-pages/desktop",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "private": true,
   "type": "module",
   "files": [
@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@open-pages/addons": "workspace:*",
     "@open-pages/github": "workspace:*",
     "@open-pages/hexo-runner": "workspace:*",
     "@open-pages/publish": "workspace:*",

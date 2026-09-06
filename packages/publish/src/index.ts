@@ -18,6 +18,7 @@ import {
   type SiteFile,
 } from "@open-pages/shared";
 import { assessRepoForPublish, commitFiles, createRepo, enablePages } from "@open-pages/github";
+import type { GenerationAddons } from "@open-pages/addons";
 import {
   generateSite,
   listPublicFiles,
@@ -39,6 +40,7 @@ export async function prepareSite(
   siteDir: string,
   files: SiteFile[],
   config: SiteConfig,
+  themeSource?: string,
 ): Promise<string> {
   const safe = parseSiteConfig(config);
   await mkdir(siteDir, { recursive: true });
@@ -52,9 +54,10 @@ export async function prepareSite(
         { path: WELCOME_POST_PATH, content: welcomeMarkdown() },
         { path: "source/about/index.md", content: aboutPageMarkdown() },
       ],
+      themeSource,
     });
   }
-  await updateSiteConfig(siteDir, safe);
+  await updateSiteConfig(siteDir, safe, themeSource);
   const rest = files.filter((file) => file.path !== "_config.yml");
   await writeUserFiles(siteDir, rest);
   return siteDir;
@@ -70,6 +73,7 @@ export async function previewLocalSite(options: {
   config?: unknown;
   previewOrigin: string;
   sitesRoot?: string;
+  addons?: GenerationAddons;
 }): Promise<{ publicDir: string; elapsedMs: number; url: string; rebaseRoot: string }> {
   const rebaseRoot = `/preview/${options.siteId}/`;
   const config = parseSiteConfig({
@@ -78,8 +82,8 @@ export async function previewLocalSite(options: {
     root: rebaseRoot,
   });
   const siteDir = localSiteDir(options.siteId, options.sitesRoot);
-  await prepareSite(siteDir, options.files, config);
-  const result = await generateSite(siteDir, { rebaseRoot });
+  await prepareSite(siteDir, options.files, config, options.addons?.themeSource);
+  const result = await generateSite(siteDir, { rebaseRoot, ...options.addons });
   return {
     publicDir: result.publicDir,
     elapsedMs: result.elapsedMs,
@@ -97,6 +101,7 @@ export async function publishSite(options: {
   repo: string;
   createRepo?: boolean;
   sitesRoot?: string;
+  addons?: GenerationAddons;
 }): Promise<{ url: string; owner: string; repo: string; root: string }> {
   const owner = options.owner;
   const repo = parseRepoName(options.repo);
@@ -121,8 +126,8 @@ export async function publishSite(options: {
       });
 
   const siteDir = localSiteDir(options.siteId, options.sitesRoot);
-  await prepareSite(siteDir, options.files ?? [], config);
-  await generateSite(siteDir, { rebaseRoot: config.root });
+  await prepareSite(siteDir, options.files ?? [], config, options.addons?.themeSource);
+  await generateSite(siteDir, { rebaseRoot: config.root, ...options.addons });
 
   const sourceFiles = publishableSourceFiles(options.files ?? []).filter(
     (file) => file.path !== "_config.yml",

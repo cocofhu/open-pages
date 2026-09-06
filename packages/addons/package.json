@@ -1,5 +1,5 @@
 {
-  "name": "@open-pages/publish",
+  "name": "@open-pages/addons",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,9 +14,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@open-pages/addons": "workspace:*",
-    "@open-pages/github": "workspace:*",
-    "@open-pages/hexo-runner": "workspace:*",
     "@open-pages/shared": "workspace:*"
   },
   "devDependencies": {

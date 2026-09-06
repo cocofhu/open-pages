@@ -20,6 +20,7 @@ import {
 } from "@open-pages/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { InstallStep } from "../lib/api";
+import { isTauri } from "../lib/platform";
 import { LANGUAGE_OPTIONS, PERMALINK_PRESETS, timezoneOptions } from "../lib/site-options";
 import { ComboSelect } from "./ComboSelect";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -769,7 +770,9 @@ function AddonInstaller({
         </button>
       </div>
       <p className="hint addon-installer-hint">
-        支持 npm 包名或公开 GitHub 仓库，安装的{noun}只在本账号生效。
+        {isTauri()
+          ? `支持 npm 包名或公开 GitHub 仓库，安装的${noun}只在本机生效。`
+          : `支持 npm 包名或公开 GitHub 仓库，安装的${noun}只在本账号生效。`}
       </p>
       {busy || percent > 0 ? (
         <div
