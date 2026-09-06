@@ -223,13 +223,22 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
       return;
     }
     if (req.method === "POST" && url.pathname === "/preview") {
-      const body = await readJson<{ siteId: string; files: SiteFile[]; config?: SiteConfig }>(req);
+      const body = await readJson<{
+        siteId: string;
+        files: SiteFile[];
+        config?: SiteConfig;
+        sourcePath?: string;
+      }>(req);
       const result = await previewLocalSite({
         siteId: body.siteId,
         files: body.files ?? [],
         config: body.config,
         previewOrigin,
         addons: await generationAddons(body.config),
+        sourcePath:
+          typeof body.sourcePath === "string" && body.sourcePath.trim()
+            ? body.sourcePath.trim()
+            : undefined,
       });
       sendJson(res, 200, { ok: true, elapsedMs: result.elapsedMs, url: result.url });
       return;

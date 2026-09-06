@@ -555,11 +555,16 @@ export function App() {
       setToast({ kind: "error", text: "预览需要联网，由服务端运行 hexo generate。" });
       return;
     }
+    if (!activePath?.endsWith(".md")) {
+      setToast({ kind: "error", text: "请先打开一篇文章、页面或草稿再预览。" });
+      return;
+    }
+    const sourcePath = activePath;
     previewReloadRef.current = () => void runPreview();
     const request = ++previewRequestRef.current;
     setPreview({
-      title: "Hexo 预览",
-      hint: "用当前草稿渲染，不写入本地",
+      title: "文章预览",
+      hint: "当前文档的 Hexo 成品页",
       url: null,
       error: null,
     });
@@ -567,11 +572,11 @@ export function App() {
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
-      const result = await platform.preview(siteId(), filesSnapshot, config);
+      const result = await platform.preview(siteId(), filesSnapshot, config, sourcePath);
       if (request !== previewRequestRef.current) return;
       const url = `${result.url}?t=${Date.now()}`;
       setPreview((current) => (current ? { ...current, url, error: null } : current));
-      setToast({ kind: "ok", text: `Hexo 预览已就绪（${result.elapsedMs}ms）` });
+      setToast({ kind: "ok", text: `文章预览已就绪（${result.elapsedMs}ms）` });
     } catch (error) {
       if (request !== previewRequestRef.current) return;
       const message = errorMessage(error, "预览失败");
@@ -598,8 +603,8 @@ export function App() {
     previewReloadRef.current = () => void runPublishPreview();
     const request = ++previewRequestRef.current;
     setPreview({
-      title: "发布预览",
-      hint: "路径与 GitHub Pages 一致",
+      title: "主页预览",
+      hint: "站点主页 · 路径与 GitHub Pages 一致",
       url: null,
       error: null,
     });
@@ -607,13 +612,14 @@ export function App() {
     try {
       await persistCurrent();
       const filesSnapshot = await snapshotFiles();
+      // Publish preview must open the site home — never pass sourcePath.
       const result = await platform.preview(siteId(), filesSnapshot, publishConfig);
       if (request !== previewRequestRef.current) return;
       const url = `${result.url}?t=${Date.now()}`;
       setPreview((current) => (current ? { ...current, url, error: null } : current));
       setToast({
         kind: "ok",
-        text: `发布预览已就绪（${result.elapsedMs}ms），路径与 GitHub Pages 一致`,
+        text: `主页预览已就绪（${result.elapsedMs}ms），路径与 GitHub Pages 一致`,
       });
     } catch (error) {
       if (request !== previewRequestRef.current) return;

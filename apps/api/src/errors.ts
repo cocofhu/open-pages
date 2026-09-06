@@ -16,7 +16,7 @@ export function asClientError(error: unknown): ClientError | null {
     return new ClientError(error.message, 429);
   }
   if (
-    /^(Invalid |Path not allowed|Too many files|File too large|Repository name|Cannot publish|Theme package not installed|Theme not installed|Hexo 没有生成首页|Hexo 首页是空的|YAMLException|hexo generate timed out|hexo generate failed|Use a Hexo |Installed |Addon |Package |Plugin |Core plugins|Built-in addons|Only plugins|Switch sites|Download failed|这个扩展|仓库文件太多)/.test(
+    /^(Invalid |Path not allowed|Too many files|File too large|Repository name|Cannot publish|Theme package not installed|Theme not installed|Hexo 没有生成首页|Hexo 首页是空的|YAMLException|hexo generate timed out|hexo generate failed|Use a Hexo |Installed |Addon |Package |Plugin |Core plugins|Built-in addons|Only plugins|Switch sites|Download failed|这个扩展|仓库文件太多|找不到当前文档的预览页)/.test(
       error.message,
     )
   ) {

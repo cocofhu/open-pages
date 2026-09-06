@@ -24,6 +24,14 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       cwd: "..",
+      env: {
+        ...process.env,
+        PORT: "8787",
+        PREVIEW_PORT: "8788",
+        PREVIEW_ORIGIN: "http://localhost:8788",
+        APP_ORIGIN: "http://localhost:5173",
+        API_ORIGIN: "http://localhost:8787",
+      },
     },
     {
       command: "pnpm --filter @open-pages/web dev",

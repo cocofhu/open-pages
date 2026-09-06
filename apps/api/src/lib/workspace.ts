@@ -2,6 +2,7 @@ import { relative, resolve, sep } from "node:path";
 import { lstat, mkdir, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import {
   DEFAULT_SITE_CONFIG,
+  fileKind,
   isSafeSiteId,
   isSafeWorkspaceId,
   parseSiteConfig,
@@ -13,6 +14,8 @@ import {
 } from "@open-pages/shared";
 import {
   generateSite,
+  joinPreviewUrl,
+  resolveSourcePermalink,
   scaffoldSite,
   updateSiteConfig,
   writeUserFiles,
@@ -141,6 +144,7 @@ export async function previewSite(
   siteId: string,
   files: SiteFile[],
   config?: SiteConfig,
+  sourcePath?: string,
 ) {
   const root = previewMount(owner, siteId);
   const previewConfig = parseSiteConfig({
@@ -151,7 +155,21 @@ export async function previewSite(
   return withSiteGate(owner, siteId, async () => {
     const addons = await resolveGenerationAddons(owner, previewConfig.theme);
     const dir = await syncSiteUnlocked(owner, siteId, files, previewConfig, addons.themeSource);
-    return generateSite(dir, { rebaseRoot: root, ...addons });
+    const includeDrafts = Boolean(sourcePath && fileKind(sourcePath) === "draft");
+    const result = await generateSite(dir, {
+      rebaseRoot: root,
+      draft: includeDrafts,
+      ...addons,
+    });
+    const baseUrl = previewUrl(owner, siteId);
+    if (!sourcePath) {
+      return { ...result, url: baseUrl };
+    }
+    const pagePath = resolveSourcePermalink(result.sourcePaths, sourcePath);
+    if (!pagePath) {
+      throw new ClientError(`找不到当前文档的预览页：${sourcePath}`);
+    }
+    return { ...result, url: joinPreviewUrl(baseUrl, pagePath) };
   });
 }
 
