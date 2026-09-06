@@ -70,10 +70,10 @@ export const platform = {
     return invoke<{ addons: AddonManifest[] }>("list_addons", kind ? { kind } : {});
   },
 
-  async preview(siteId: string, files: SiteFile[], config: SiteConfig) {
-    if (!isTauri()) return api.preview(siteId, files, config);
+  async preview(siteId: string, files: SiteFile[], config: SiteConfig, sourcePath?: string) {
+    if (!isTauri()) return api.preview(siteId, files, config, sourcePath);
     return invoke<{ ok: boolean; url: string; elapsedMs: number }>("preview_site", {
-      payload: { siteId, files, config },
+      payload: { siteId, files, config, ...(sourcePath ? { sourcePath } : {}) },
     });
   },
 
