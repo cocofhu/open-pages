@@ -10,7 +10,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useEffect, useState } from "react";
 import {
-  pagesUrl,
+  publishUrlAndRoot,
   THEME_META,
   type PublishRepoCheck,
   type ThemeId,
@@ -28,6 +28,8 @@ interface PublishPageProps {
   boundOwner?: string;
   /** Bound GitHub repo from local GithubBinding (read-only target). */
   boundRepo?: string;
+  /** Optional custom domain hostname from settings (display only). */
+  customDomain?: string;
   busy: boolean;
   previewing: boolean;
   online: boolean;
@@ -47,6 +49,7 @@ export function PublishPage({
   theme,
   boundOwner,
   boundRepo,
+  customDomain,
   busy,
   previewing,
   online,
@@ -100,7 +103,9 @@ export function PublishPage({
     return () => window.clearTimeout(timer);
   }, [bound, owner, repo, siteId, user?.login, onSessionStale]);
 
-  const site = bound ? pagesUrl(owner, repo) : "";
+  const site = bound
+    ? `${publishUrlAndRoot(owner, repo, customDomain).url.replace(/\/$/, "")}/`
+    : "";
   const themeLabel = THEME_META[theme]?.label ?? theme;
   const canPublish = bound && !repoChecking && Boolean(repoCheck?.eligible);
   const showPublishFeedback = busy || Boolean(status) || Boolean(resultUrl);

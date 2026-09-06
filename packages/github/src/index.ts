@@ -1,8 +1,10 @@
 import { Octokit } from "@octokit/rest";
 import {
   assessRepoRootForPublish,
+  normalizeCustomDomainInput,
   pagesRoot,
   pagesUrl,
+  parseCustomDomain,
   parseRepoName,
   publishRepoCheckMessage,
   type PublishRepoCheck,
@@ -393,14 +395,65 @@ export async function downloadRepoSnapshot(
   return { files, defaultBranch: branch };
 }
 
-export async function enablePages(token: string, owner: string, repo: string): Promise<string> {
+/** Read existing custom domain from Pages API cname, falling back to gh-pages CNAME file. */
+export async function readPagesCustomDomain(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<string | null> {
   const gh = octokit(token);
+  try {
+    const { data } = await gh.repos.getPages({ owner, repo });
+    if (typeof data.cname === "string" && data.cname.trim()) {
+      const parsed = parseCustomDomain(data.cname);
+      if (parsed.ok && parsed.hostname) return parsed.hostname;
+      return normalizeCustomDomainInput(data.cname) || null;
+    }
+  } catch {
+    // Pages may be disabled
+  }
+  try {
+    const text = await getRepoTextFile(token, owner, repo, "CNAME", "gh-pages");
+    if (!text) return null;
+    const line = text.trim().split(/\r?\n/)[0]?.trim() ?? "";
+    if (!line) return null;
+    const parsed = parseCustomDomain(line);
+    if (parsed.ok && parsed.hostname) return parsed.hostname;
+    return normalizeCustomDomainInput(line) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ensure gh-pages source is enabled and optionally sync Pages `cname`.
+ * Pass `cname: null` or `""` to clear; omit / `undefined` to leave cname unchanged.
+ */
+export async function enablePages(
+  token: string,
+  owner: string,
+  repo: string,
+  cname?: string | null,
+): Promise<string> {
+  const gh = octokit(token);
+  const touchCname = cname !== undefined;
+  let resolvedHostname: string | null | undefined;
+  if (touchCname) {
+    if (cname == null || !String(cname).trim()) {
+      resolvedHostname = null;
+    } else {
+      const parsed = parseCustomDomain(String(cname));
+      resolvedHostname = parsed.ok ? parsed.hostname || null : normalizeCustomDomainInput(String(cname)) || null;
+    }
+  }
+
   try {
     await gh.repos.createPagesSite({
       owner,
       repo,
       build_type: "legacy",
       source: { branch: "gh-pages", path: "/" },
+      ...(resolvedHostname ? { cname: resolvedHostname } : {}),
     });
   } catch {
     try {
@@ -408,15 +461,31 @@ export async function enablePages(token: string, owner: string, repo: string): P
         owner,
         repo,
         source: { branch: "gh-pages", path: "/" },
+        ...(touchCname ? { cname: resolvedHostname ?? null } : {}),
       });
     } catch {
       // Pages may already be configured
     }
   }
+
+  if (touchCname) {
+    try {
+      await gh.repos.updateInformationAboutPagesSite({
+        owner,
+        repo,
+        cname: resolvedHostname ?? null,
+      });
+    } catch {
+      // Best-effort cname sync
+    }
+  }
+
   try {
     const { data } = await gh.repos.getPages({ owner, repo });
+    if (resolvedHostname) return `https://${resolvedHostname}/`;
     return data.html_url ?? pagesUrl(owner, repo);
   } catch {
+    if (resolvedHostname) return `https://${resolvedHostname}/`;
     return pagesUrl(owner, repo);
   }
 }

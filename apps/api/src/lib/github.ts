@@ -8,4 +8,5 @@ export {
   getRepoTextFile,
   listRepoRootEntries,
   downloadRepoSnapshot,
+  readPagesCustomDomain,
 } from "@open-pages/github";

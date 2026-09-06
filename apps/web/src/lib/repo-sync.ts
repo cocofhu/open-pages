@@ -56,6 +56,7 @@ export async function applyRepoSnapshot(
   owner: string,
   repo: string,
   onProgress?: (progress: SyncProgress) => void,
+  previous?: GithubBinding,
 ): Promise<RepoSyncResult> {
   onProgress?.({ label: "正在写入 origin 备份", percent: 72 });
   await deleteByPrefix("source/origin/");
@@ -91,6 +92,7 @@ export async function applyRepoSnapshot(
       owner,
       repo,
       defaultBranch: snapshot.defaultBranch,
+      ...(typeof previous?.customDomain === "string" ? { customDomain: previous.customDomain } : {}),
     },
     warning,
   };

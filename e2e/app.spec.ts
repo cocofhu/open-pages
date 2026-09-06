@@ -291,6 +291,22 @@ graph LR
     const title = page.getByTestId("cfg-title");
     await expect(title).toBeVisible();
     await expect(title).toHaveValue("Open Pages");
+    await expect(page.getByTestId("settings-domain")).toBeVisible();
+    await expect(page.getByTestId("cfg-custom-domain")).toBeVisible();
+    await page.getByTestId("cfg-domain-help").click();
+    const help = page.getByTestId("dialog-domain-help");
+    await expect(help).toBeVisible();
+    await expect(help).toContainText("如何配置自定义域名");
+    await expect(help).toContainText("CNAME");
+    await expect(help).not.toContainText("404");
+    await expect(help).not.toContainText("YAML");
+    await expect(help).not.toContainText("仓库名");
+    await page.getByTestId("domain-help-close").click();
+    await expect(help).toHaveCount(0);
+    await page.getByTestId("cfg-custom-domain").fill("https://bad.example.com");
+    await page.getByTestId("settings-save").click();
+    await expect(page.getByTestId("cfg-domain-error")).toBeVisible();
+    await page.getByTestId("cfg-custom-domain").fill("blog.example.com");
     await title.fill("E2E Site");
     const avatarBuffer = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",

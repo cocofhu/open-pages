@@ -9,10 +9,11 @@ import {
   manifestAddonsFromCatalog,
   openPagesManifestFile,
   openPagesReadmeFile,
-  pagesRoot,
   pagesUrl,
   parseRepoName,
   parseSiteConfig,
+  publishUrlAndRoot,
+  withCnameFile,
   type SiteConfig,
   type SiteFile,
 } from "@open-pages/shared";
@@ -27,7 +28,15 @@ import {
   resetSite,
   syncSite,
 } from "../lib/workspace.js";
-import { assessRepoForPublish, commitFiles, createRepo, downloadRepoSnapshot, enablePages, listRepos } from "../lib/github.js";
+import {
+  assessRepoForPublish,
+  commitFiles,
+  createRepo,
+  downloadRepoSnapshot,
+  enablePages,
+  listRepos,
+  readPagesCustomDomain,
+} from "../lib/github.js";
 import { listAddons } from "../lib/addons.js";
 import { createConcurrencyGate, createRateLimiter, requestIp } from "../lib/rate-limit.js";
 
@@ -101,6 +110,16 @@ siteRoutes.get("/github/repos/:owner/:repo/publish-check", async (c) => {
   return c.json(check);
 });
 
+siteRoutes.get("/github/repos/:owner/:repo/pages-domain", async (c) => {
+  const session = c.get("session");
+  if (!session.accessToken || !session.login) return c.json({ error: "Not signed in" }, 401);
+  const owner = c.req.param("owner");
+  const repo = parseRepoName(c.req.param("repo"));
+  if (owner !== session.login) throw new ClientError("Cannot inspect another owner's repository", 403);
+  const customDomain = await readPagesCustomDomain(session.accessToken, owner, repo);
+  return c.json({ customDomain });
+});
+
 siteRoutes.get("/github/repos/:owner/:repo/snapshot", async (c) => {
   const session = c.get("session");
   if (!session.accessToken || !session.login) return c.json({ error: "Not signed in" }, 401);
@@ -158,6 +177,7 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     owner?: string;
     repo: string;
     createRepo?: boolean;
+    customDomain?: string | null;
   };
   if (body.owner && body.owner !== session.login) {
     throw new ClientError("Cannot publish to another owner", 403);
@@ -173,11 +193,17 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     if (!check.eligible) throw new ClientError(check.message, 403);
   }
 
+  const hostname =
+    typeof body.customDomain === "string"
+      ? body.customDomain.trim() || null
+      : await readPagesCustomDomain(session.accessToken, owner, repo);
+  const { url: siteUrl, root: siteRoot } = publishUrlAndRoot(owner, repo, hostname);
+
   const config = body.config
     ? parseSiteConfig({
         ...parseSiteConfig(body.config),
-        url: pagesUrl(owner, repo).replace(/\/$/, ""),
-        root: pagesRoot(owner, repo),
+        url: siteUrl,
+        root: siteRoot,
       })
     : undefined;
 
@@ -195,6 +221,7 @@ siteRoutes.post("/:siteId/publish", async (c) => {
   }
   const siteConfig = config ?? DEFAULT_SITE_CONFIG;
   const catalog = await listAddons(ownerKey(session));
+  const displayPagesUrl = hostname ? `https://${hostname}/` : pagesUrl(owner, repo);
   sourceFiles.push(
     openPagesManifestFile(siteId, {
       theme: siteConfig.theme,
@@ -205,7 +232,7 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     openPagesReadmeFile({
       title: siteConfig.title,
       description: siteConfig.description,
-      pagesUrl: pagesUrl(owner, repo),
+      pagesUrl: displayPagesUrl,
       theme: siteConfig.theme,
       owner,
       repo,
@@ -221,7 +248,7 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     files: sourceFiles,
   });
 
-  const publicFiles = await listPublicFiles(join(dir, "public"));
+  const publicFiles = withCnameFile(await listPublicFiles(join(dir, "public")), hostname);
   await commitFiles({
     token: session.accessToken,
     owner,
@@ -232,12 +259,12 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     replace: true,
   });
 
-  const url = await enablePages(session.accessToken, owner, repo);
+  const url = await enablePages(session.accessToken, owner, repo, hostname);
   return c.json({
     ok: true,
     url,
     owner,
     repo,
-    root: pagesRoot(owner, repo),
+    root: siteRoot,
   });
 });

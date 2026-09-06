@@ -8,10 +8,11 @@ import {
   manifestAddonsFromCatalog,
   openPagesManifestFile,
   openPagesReadmeFile,
-  pagesRoot,
   pagesUrl,
   parseRepoName,
   parseSiteConfig,
+  publishUrlAndRoot,
+  withCnameFile,
   aboutPageMarkdown,
   welcomeMarkdown,
   WELCOME_POST_PATH,
@@ -19,7 +20,7 @@ import {
   type SiteConfig,
   type SiteFile,
 } from "@open-pages/shared";
-import { assessRepoForPublish, commitFiles, createRepo, enablePages } from "@open-pages/github";
+import { assessRepoForPublish, commitFiles, createRepo, enablePages, readPagesCustomDomain } from "@open-pages/github";
 import type { GenerationAddons } from "@open-pages/addons";
 import {
   generateSite,
@@ -94,6 +95,20 @@ export async function previewLocalSite(options: {
   };
 }
 
+/** Resolve domain for publish: explicit settings value wins; otherwise preserve remote. */
+export async function resolvePublishCustomDomain(
+  token: string,
+  owner: string,
+  repo: string,
+  requested?: string | null,
+): Promise<string | null> {
+  if (typeof requested === "string") {
+    const trimmed = requested.trim();
+    return trimmed || null;
+  }
+  return readPagesCustomDomain(token, owner, repo);
+}
+
 export async function publishSite(options: {
   token: string;
   siteId: string;
@@ -105,6 +120,8 @@ export async function publishSite(options: {
   sitesRoot?: string;
   addons?: GenerationAddons;
   catalog?: AddonManifest[];
+  /** Target custom domain from settings; omit to preserve GitHub/CNAME; empty to clear. */
+  customDomain?: string | null;
 }): Promise<{ url: string; owner: string; repo: string; root: string }> {
   const owner = options.owner;
   const repo = parseRepoName(options.repo);
@@ -116,16 +133,24 @@ export async function publishSite(options: {
     if (!check.eligible) throw new Error(check.message);
   }
 
+  const hostname = await resolvePublishCustomDomain(
+    options.token,
+    owner,
+    repo,
+    options.customDomain,
+  );
+  const { url: siteUrl, root: siteRoot } = publishUrlAndRoot(owner, repo, hostname);
+
   const config = options.config
     ? parseSiteConfig({
         ...parseSiteConfig(options.config),
-        url: pagesUrl(owner, repo).replace(/\/$/, ""),
-        root: pagesRoot(owner, repo),
+        url: siteUrl,
+        root: siteRoot,
       })
     : parseSiteConfig({
         ...DEFAULT_SITE_CONFIG,
-        url: pagesUrl(owner, repo).replace(/\/$/, ""),
-        root: pagesRoot(owner, repo),
+        url: siteUrl,
+        root: siteRoot,
       });
 
   const siteDir = localSiteDir(options.siteId, options.sitesRoot);
@@ -143,6 +168,7 @@ export async function publishSite(options: {
   } catch {
     // keep empty if missing
   }
+  const displayPagesUrl = hostname ? `https://${hostname}/` : pagesUrl(owner, repo);
   sourceFiles.push(
     openPagesManifestFile(options.siteId, {
       theme: config.theme,
@@ -153,7 +179,7 @@ export async function publishSite(options: {
     openPagesReadmeFile({
       title: config.title,
       description: config.description,
-      pagesUrl: pagesUrl(owner, repo),
+      pagesUrl: displayPagesUrl,
       theme: config.theme,
       owner,
       repo,
@@ -169,7 +195,7 @@ export async function publishSite(options: {
     files: sourceFiles,
   });
 
-  const publicFiles = await listPublicFiles(join(siteDir, "public"));
+  const publicFiles = withCnameFile(await listPublicFiles(join(siteDir, "public")), hostname);
   await commitFiles({
     token: options.token,
     owner,
@@ -180,11 +206,11 @@ export async function publishSite(options: {
     replace: true,
   });
 
-  const url = await enablePages(options.token, owner, repo);
+  const url = await enablePages(options.token, owner, repo, hostname);
   return {
     url,
     owner,
     repo,
-    root: pagesRoot(owner, repo),
+    root: siteRoot,
   };
 }
