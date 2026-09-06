@@ -888,6 +888,10 @@ export function App() {
             settingsDirtyRef.current = dirty;
           }}
           onLoadTheme={loadThemeSettings}
+          onPreview={(draft) => {
+            settingsDraftRef.current = draft;
+            void renderSettingsPreview(draft.config, draft);
+          }}
           onSave={saveSettings}
           onInstallAddon={async (source, kind, onProgress) => {
             const { addon } = await platform.installAddon(source, kind, onProgress);

@@ -26,7 +26,7 @@ import { hasUnpublishedRepoChanges } from "../lib/repo-sync";
 import { LANGUAGE_OPTIONS, PERMALINK_PRESETS, timezoneOptions } from "../lib/site-options";
 import { ComboSelect } from "./ComboSelect";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ThemeSettingsForm } from "./ThemeFields";
+import { ThemeSettingsForm, type ThemeChangeOptions } from "./ThemeFields";
 import { StudioBar } from "./StudioBar";
 
 const THEME_TINT: Record<ThemeId, { ink: string; paper: string }> = {
@@ -71,6 +71,7 @@ interface SettingsPageProps {
   onTab: (tab: SettingsTab) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onLoadTheme: (theme: ThemeId) => Promise<{ values: ThemeSettings; yaml: string }>;
+  onPreview: (draft: SettingsDraft) => void;
   onSave: (draft: SettingsDraft) => Promise<SettingsDraft>;
   onInstallAddon: (
     source: string,
@@ -113,6 +114,7 @@ export function SettingsPage({
   onTab,
   onDirtyChange,
   onLoadTheme,
+  onPreview,
   onSave,
   onInstallAddon,
   onUpdateAddon,
@@ -146,6 +148,7 @@ export function SettingsPage({
   const [pluginValues, setPluginValues] = useState<ThemeSettings>({});
   const [pluginYaml, setPluginYaml] = useState("");
   const [pluginConfigBusy, setPluginConfigBusy] = useState(false);
+  const previewTimer = useRef<number | undefined>(undefined);
   const themeDraftsRef = useRef(themeDrafts);
   themeDraftsRef.current = themeDrafts;
 
@@ -185,16 +188,28 @@ export function SettingsPage({
     };
   }, [github, dirty]);
 
+  const schedulePreview = (next: SettingsDraft) => {
+    if (previewTimer.current) window.clearTimeout(previewTimer.current);
+    previewTimer.current = window.setTimeout(() => onPreview(next), 650);
+  };
+
   const setSite = <K extends keyof SiteConfig>(key: K, value: SiteConfig[K]) => {
     const nextConfig = { ...draftConfig, [key]: value };
     const nextYaml = applySiteConfigToYaml(nextConfig, draftYaml);
     setDraftConfig(nextConfig);
     setDraftYaml(nextYaml);
+    schedulePreview({ ...draft, config: nextConfig, rawYaml: nextYaml });
   };
 
-  const setThemeValues = (next: ThemeSettings) => {
+  const setThemeValues = (next: ThemeSettings, options?: ThemeChangeOptions) => {
     setDraftTheme(next);
     setThemeDrafts((current) => ({ ...current, [draftConfig.theme]: next }));
+    if (options?.preview === false) return;
+    schedulePreview({
+      ...draft,
+      themeSettings: next,
+      themeDrafts: { ...themeDraftsRef.current, [draftConfig.theme]: next },
+    });
   };
 
   const pickTheme = (theme: ThemeId) => {
@@ -219,6 +234,18 @@ export function SettingsPage({
         [previous]: draftThemeYaml,
         [theme]: loaded.yaml,
       }));
+      schedulePreview({
+        config: nextConfig,
+        rawYaml: nextYaml,
+        themeSettings: values,
+        themeYaml: loaded.yaml,
+        themeDrafts: { ...themeDraftsRef.current, [previous]: draftTheme, [theme]: values },
+        themeYamlDrafts: {
+          ...themeYamlDrafts,
+          [previous]: draftThemeYaml,
+          [theme]: loaded.yaml,
+        },
+      });
     })();
   };
 
@@ -226,6 +253,7 @@ export function SettingsPage({
     setDraftYaml(value);
     const merged = mergeYamlIntoConfig(draftConfig, value);
     setDraftConfig(merged);
+    schedulePreview({ ...draft, config: merged, rawYaml: value });
   };
 
   const save = async () => {
@@ -543,6 +571,14 @@ export function SettingsPage({
                         ...current,
                         [draftConfig.theme]: yaml,
                       }));
+                      schedulePreview({
+                        ...draft,
+                        themeYaml: yaml,
+                        themeYamlDrafts: {
+                          ...themeYamlDrafts,
+                          [draftConfig.theme]: yaml,
+                        },
+                      });
                     }}
                   />
                 </label>
