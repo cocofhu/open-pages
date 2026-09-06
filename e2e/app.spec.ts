@@ -437,21 +437,60 @@ graph LR
         }),
       });
     });
-    await page.route("**/sites/github/repos**", async (route) => {
+    await page.route("**/sites/github/repos/**/publish-check**", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ repos: [] }),
+        body: JSON.stringify({
+          eligible: true,
+          reason: "bound",
+          message: "可以发布",
+        }),
       });
     });
 
     await boot(page);
     await expect(page.getByTestId("title-input")).toHaveValue("Hello Open Pages");
 
+    // Publish is bound-repo-only after main; seed the local GithubBinding so
+    // the preview button can enable without the removed create-repo UI.
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open("open-pages", 1);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("meta", "readwrite");
+        const store = tx.objectStore("meta");
+        const getReq = store.get("default");
+        getReq.onsuccess = () => {
+          const row = (getReq.result as Record<string, unknown> | undefined) ?? {
+            key: "default",
+            config: {},
+            updatedAt: Date.now(),
+          };
+          store.put({
+            ...row,
+            github: {
+              owner: "e2e-user",
+              repo: "e2e-user.github.io",
+              defaultBranch: "main",
+            },
+            updatedAt: Date.now(),
+          });
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    });
+    await page.reload();
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("title-input")).toHaveValue("Hello Open Pages");
+
     await page.getByTestId("btn-publish").click();
     await expect(page.getByTestId("publish-page")).toBeVisible();
-    await expect(page.getByTestId("publish-create-toggle")).toHaveAttribute("aria-checked", "true");
-    await page.getByTestId("publish-repo-input").fill("e2e-user.github.io");
+    await expect(page.getByTestId("publish-bound-repo")).toContainText("e2e-user/e2e-user.github.io");
     await expect(page.getByTestId("publish-repo-check")).toContainText("可以发布", { timeout: 10_000 });
 
     const popups: string[] = [];
