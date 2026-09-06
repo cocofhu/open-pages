@@ -36,6 +36,7 @@ export {
   openPagesReadmeFile,
   parseOpenPagesSiteManifest,
   publishRepoCheckMessage,
+  repoRootLooksEmpty,
   repoRootLooksForeign,
   serializeOpenPagesSiteManifest,
   type ManifestAddon,

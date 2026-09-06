@@ -74,7 +74,9 @@ function publishableSourceFiles(files: SiteFile[]): SiteFile[] {
 siteRoutes.get("/github/repos", async (c) => {
   const session = c.get("session");
   if (!session.accessToken) return c.json({ error: "Not signed in" }, 401);
-  const repos = await listRepos(session.accessToken);
+  const siteId = c.req.query("siteId") ?? "default";
+  if (!isSafeSiteId(siteId)) throw new ClientError("Invalid site id");
+  const repos = await listRepos(session.accessToken, siteId);
   return c.json({ repos });
 });
 

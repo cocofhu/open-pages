@@ -44,6 +44,20 @@ const FOREIGN_ROOT_MARKERS = new Set([
   "db.json",
 ]);
 
+/** GitHub's empty / just-created repo files. Anything else is a real project. */
+const EMPTY_ROOT_ALLOW = new Set([
+  "README",
+  "README.md",
+  "LICENSE",
+  "LICENSE.md",
+  "LICENCE",
+  "LICENCE.md",
+  "COPYING",
+  "COPYING.md",
+  ".gitignore",
+  ".gitattributes",
+]);
+
 export function createOpenPagesSiteManifest(
   siteId: string,
   extras: { theme?: string; addons?: ManifestAddon[]; updatedAt?: Date } = {},
@@ -86,9 +100,18 @@ export function manifestMatchesSite(manifest: OpenPagesSiteManifest, siteId: str
   return manifest.siteId === siteId;
 }
 
+function rootName(entry: string): string {
+  return entry.replace(/\/$/, "");
+}
+
 /** Root entries that indicate a non–Open Pages Hexo/site tree without our manifest. */
 export function repoRootLooksForeign(entries: string[]): boolean {
-  return entries.some((entry) => FOREIGN_ROOT_MARKERS.has(entry.replace(/\/$/, "")));
+  return entries.some((entry) => FOREIGN_ROOT_MARKERS.has(rootName(entry)));
+}
+
+/** Only the files GitHub puts in a new empty repo — safe to adopt. */
+export function repoRootLooksEmpty(entries: string[]): boolean {
+  return entries.every((entry) => EMPTY_ROOT_ALLOW.has(rootName(entry)));
 }
 
 /** File bodies written by a previous Open Pages publish. */
@@ -112,9 +135,9 @@ export function publishRepoCheckMessage(reason: PublishRepoReason, detail?: stri
     case "bound":
       return "这是当前站点的仓库，可以安全发布。";
     case "adoptable":
-      return "仓库可用，发布后会标记为 Open Pages 站点。";
+      return "空仓库，绑定或发布后会标记为 Open Pages 站点。";
     case "foreign":
-      return detail ?? "这个仓库里已有其他项目内容，为避免覆盖，不能在这里发布。请新建仓库，或选择你之前用 Open Pages 发布过的仓库。";
+      return detail ?? "这个仓库里已有其他项目内容，为避免覆盖，不能在这里使用。请新建仓库，或选择你之前用 Open Pages 发布过的仓库。";
     case "bound-other":
       return detail ?? "这个仓库已绑定其他 Open Pages 站点，请换一个仓库。";
     case "invalid-manifest":
@@ -235,17 +258,17 @@ export function assessRepoRootForPublish(options: {
     };
   }
 
-  if (repoRootLooksForeign(options.rootEntries)) {
+  if (repoRootLooksEmpty(options.rootEntries)) {
     return {
-      eligible: false,
-      reason: "foreign",
-      message: publishRepoCheckMessage("foreign"),
+      eligible: true,
+      reason: "adoptable",
+      message: publishRepoCheckMessage("adoptable"),
     };
   }
 
   return {
-    eligible: true,
-    reason: "adoptable",
-    message: publishRepoCheckMessage("adoptable"),
+    eligible: false,
+    reason: "foreign",
+    message: publishRepoCheckMessage("foreign"),
   };
 }

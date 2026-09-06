@@ -649,9 +649,14 @@ async fn publish_site(payload: Value) -> Result<Value, String> {
 }
 
 #[tauri::command]
-async fn list_repos() -> Result<Value, String> {
+async fn list_repos(site_id: String) -> Result<Value, String> {
     github_auth::require_token()?;
-    control_request(reqwest::Method::GET, "/repos", None).await
+    control_request(
+        reqwest::Method::GET,
+        &format!("/repos?siteId={site_id}"),
+        None,
+    )
+    .await
 }
 
 #[tauri::command]

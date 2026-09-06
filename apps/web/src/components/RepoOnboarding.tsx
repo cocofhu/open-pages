@@ -3,6 +3,11 @@ import { GitHubMark } from "./GitHubMark";
 import { ComboSelect } from "./ComboSelect";
 import { type AuthUser, type GithubRepo } from "../lib/api";
 import { platform } from "../lib/platform";
+import { siteId } from "../lib/vfs";
+
+function bindableRepos(repos: GithubRepo[]): GithubRepo[] {
+  return repos.filter((item) => item.eligible !== false);
+}
 
 interface RepoOnboardingProps {
   user: AuthUser | null;
@@ -23,10 +28,12 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
     if (!user?.login) return;
     setLoading(true);
     void platform
-      .repos()
+      .repos(siteId())
       .then((data) => {
-        setRepos(data.repos);
-        setRepo((current) => current || data.repos[0]?.name || "");
+        const usable = bindableRepos(data.repos);
+        setRepos(usable);
+        setCreateNew(usable.length === 0);
+        setRepo((current) => current || usable[0]?.name || "");
       })
       .catch((err: Error) => {
         setError(err.message);
@@ -52,7 +59,10 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
         <header className="publish-hero">
           <p className="publish-kicker">Open Pages</p>
           <h2>选择一个仓库</h2>
-          <p className="hint">登录后选定仓库，会同步配置、文章，并恢复主题和插件。原始文件会备份到 source/origin。</p>
+          <p className="hint">
+            登录后选定仓库，会同步配置、文章，并恢复主题和插件。原始文件会备份到 source/origin。
+            列表只显示空仓库和你用 Open Pages 发布过的仓库。
+          </p>
         </header>
         {!user?.login ? (
           <section className="publish-login">
@@ -125,7 +135,7 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
                     placeholder={`${owner}.github.io`}
                   />
                 </label>
-              ) : (
+              ) : options.length ? (
                 <ComboSelect
                   label="选择仓库"
                   value={repo}
@@ -134,6 +144,12 @@ export function RepoOnboarding({ user, device, onLogin, onSessionStale, onPick }
                   searchPlaceholder="搜索仓库…"
                   onChange={setRepo}
                 />
+              ) : (
+                <p className="hint" data-testid="onboard-repo-empty">
+                  {loading
+                    ? "正在筛选可用仓库…"
+                    : "没有可用仓库。打开「创建新仓库」，或先在 GitHub 建一个空仓库。"}
+                </p>
               )}
               {error ? <p className="hint publish-error">{error}</p> : null}
             </section>

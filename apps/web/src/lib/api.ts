@@ -40,6 +40,8 @@ export interface GithubRepo {
   defaultBranch: string;
   htmlUrl: string;
   pagesUrl: string;
+  eligible?: boolean;
+  reason?: string;
 }
 
 export interface InstallStep {
@@ -183,7 +185,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ files, config }),
     }),
-  repos: () => request<{ repos: GithubRepo[] }>("/sites/github/repos"),
+  repos: (siteId = "default") =>
+    request<{ repos: GithubRepo[] }>(`/sites/github/repos?siteId=${encodeURIComponent(siteId)}`),
   publishCheck: (owner: string, repo: string, siteId: string) =>
     request<PublishRepoCheck>(
       `/sites/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/publish-check?siteId=${encodeURIComponent(siteId)}`,

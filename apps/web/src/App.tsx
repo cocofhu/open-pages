@@ -645,6 +645,9 @@ export function App() {
         setBoot({ phase: "ready", label: "", percent: 100 });
         return;
       }
+      setBoot({ phase: "loading", label: "正在检查仓库…", percent: 12 });
+      const check = await platform.checkRepoForPublish(owner, opts.repo, siteId());
+      if (!check.eligible) throw new Error(check.message);
       setBoot({ phase: "loading", label: "正在拉取仓库…", percent: 18 });
       const snapshot = await platform.downloadRepoSnapshot(owner, opts.repo);
       const result = await applyRepoSnapshot(snapshot, owner, opts.repo, (progress) =>

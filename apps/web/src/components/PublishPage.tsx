@@ -99,10 +99,12 @@ export function PublishPage({
     if (!user?.login) return;
     setError(null);
     void platform
-      .repos()
+      .repos(siteId)
       .then((data) => {
-        setRepos(data.repos);
-        setRepo((current) => current || data.repos[0]?.name || "");
+        const usable = data.repos.filter((item) => item.eligible !== false);
+        setRepos(usable);
+        setCreateNew(usable.length === 0 && !defaultRepo);
+        setRepo((current) => current || defaultRepo || usable[0]?.name || "");
       })
       .catch((err: Error) => {
         setError(err.message);
@@ -182,7 +184,8 @@ export function PublishPage({
             <h2>发布站点</h2>
             <p className="hint">
               将用主题 <span className="publish-theme-pill">{themeLabel}</span>{" "}
-              生成静态网站并推送到 GitHub。主题可在站点设置里更换。
+              生成静态网站并推送到 GitHub。主题可在站点设置里更换。只列出空仓库和 Open Pages
+              站点，避免覆盖其他项目。
             </p>
           </header>
 
@@ -250,14 +253,18 @@ export function PublishPage({
                     <em className="hint">建议使用 {owner}.github.io 作为个人站点首页</em>
                   </label>
                 ) : (
-                  <ComboSelect
-                    label="选择仓库"
-                    value={repo}
-                    options={repoOptions}
-                    testId="publish-repo-select"
-                    searchPlaceholder="搜索仓库…"
-                    onChange={setRepo}
-                  />
+                  repoOptions.length ? (
+                    <ComboSelect
+                      label="选择仓库"
+                      value={repo}
+                      options={repoOptions}
+                      testId="publish-repo-select"
+                      searchPlaceholder="搜索仓库…"
+                      onChange={setRepo}
+                    />
+                  ) : (
+                    <p className="hint">没有可用仓库。打开「创建新仓库」，或选择你之前用 Open Pages 发布过的仓库。</p>
+                  )
                 )}
 
                 {repo ? (

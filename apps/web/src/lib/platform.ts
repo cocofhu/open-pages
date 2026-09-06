@@ -77,9 +77,9 @@ export const platform = {
     });
   },
 
-  async repos(): Promise<{ repos: GithubRepo[] }> {
-    if (!isTauri()) return api.repos();
-    return invoke<{ repos: GithubRepo[] }>("list_repos");
+  async repos(siteId = "default"): Promise<{ repos: GithubRepo[] }> {
+    if (!isTauri()) return api.repos(siteId);
+    return invoke<{ repos: GithubRepo[] }>("list_repos", { siteId });
   },
 
   async checkRepoForPublish(owner: string, repo: string, siteId: string): Promise<PublishRepoCheck> {

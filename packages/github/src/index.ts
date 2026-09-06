@@ -4,7 +4,9 @@ import {
   pagesRoot,
   pagesUrl,
   parseRepoName,
+  publishRepoCheckMessage,
   type PublishRepoCheck,
+  type PublishRepoReason,
   type SiteFile,
   OPEN_PAGES_MANIFEST_PATH,
   OPEN_PAGES_README_PATH,
@@ -19,6 +21,8 @@ export interface GithubRepo {
   defaultBranch: string;
   htmlUrl: string;
   pagesUrl: string;
+  eligible?: boolean;
+  reason?: PublishRepoReason;
 }
 
 export interface CreatedRepo {
@@ -34,14 +38,14 @@ export function octokit(token: string): Octokit {
   return new Octokit({ auth: token, userAgent: "open-pages" });
 }
 
-export async function listRepos(token: string): Promise<GithubRepo[]> {
+export async function listRepos(token: string, siteId = "default"): Promise<GithubRepo[]> {
   const gh = octokit(token);
   const repos = await gh.paginate(gh.repos.listForAuthenticatedUser, {
     per_page: 100,
     sort: "updated",
     affiliation: "owner",
   });
-  return repos.map((repo) => ({
+  const mapped = repos.map((repo) => ({
     id: repo.id,
     name: repo.name,
     fullName: repo.full_name,
@@ -49,6 +53,30 @@ export async function listRepos(token: string): Promise<GithubRepo[]> {
     defaultBranch: repo.default_branch,
     htmlUrl: repo.html_url,
     pagesUrl: pagesUrl(repo.owner.login, repo.name),
+  }));
+  const checks = await mapPool(mapped, 6, async (repo, index) => {
+    if ((repos[index]?.size ?? 0) === 0) {
+      return {
+        eligible: true,
+        reason: "adoptable" as const,
+        message: publishRepoCheckMessage("adoptable"),
+      };
+    }
+    try {
+      const owner = repo.fullName.split("/")[0] ?? "";
+      return await assessRepoForPublish(token, owner, repo.name, siteId, repo.defaultBranch);
+    } catch {
+      return {
+        eligible: false,
+        reason: "invalid-manifest" as const,
+        message: "无法确认这个仓库是否属于 Open Pages。",
+      };
+    }
+  });
+  return mapped.map((repo, index) => ({
+    ...repo,
+    eligible: checks[index]?.eligible ?? false,
+    reason: checks[index]?.reason,
   }));
 }
 
@@ -264,13 +292,23 @@ export async function assessRepoForPublish(
   defaultBranch?: string,
 ): Promise<PublishRepoCheck> {
   const branch = await resolveRepoBranch(token, owner, repo, defaultBranch);
-  const [manifestRaw, rootEntries, configYaml, readme] = await Promise.all([
-    getRepoTextFile(token, owner, repo, OPEN_PAGES_MANIFEST_PATH, branch),
-    listRepoRootEntries(token, owner, repo, branch),
-    getRepoTextFile(token, owner, repo, "_config.yml", branch),
-    getRepoTextFile(token, owner, repo, OPEN_PAGES_README_PATH, branch),
+  const rootEntries = await listRepoRootEntries(token, owner, repo, branch);
+  const names = new Set(rootEntries.map((entry) => entry.replace(/\/$/, "")));
+  const manifestRaw = names.has(OPEN_PAGES_MANIFEST_PATH)
+    ? await getRepoTextFile(token, owner, repo, OPEN_PAGES_MANIFEST_PATH, branch)
+    : null;
+  if (manifestRaw != null) {
+    return assessRepoRootForPublish({ siteId, manifestRaw, rootEntries });
+  }
+  const [configYaml, readme] = await Promise.all([
+    names.has("_config.yml")
+      ? getRepoTextFile(token, owner, repo, "_config.yml", branch)
+      : Promise.resolve(null),
+    names.has(OPEN_PAGES_README_PATH)
+      ? getRepoTextFile(token, owner, repo, OPEN_PAGES_README_PATH, branch)
+      : Promise.resolve(null),
   ]);
-  return assessRepoRootForPublish({ siteId, manifestRaw, rootEntries, configYaml, readme });
+  return assessRepoRootForPublish({ siteId, manifestRaw: null, rootEntries, configYaml, readme });
 }
 
 const SNAPSHOT_SKIP = /^(node_modules|themes|public|\.builds|source\/origin)(\/|$)/;

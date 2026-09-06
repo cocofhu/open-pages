@@ -139,7 +139,12 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
       return;
     }
     if (req.method === "GET" && url.pathname === "/repos") {
-      const repos = await listRepos(readBearer(req));
+      const siteId = url.searchParams.get("siteId") ?? "default";
+      if (!isSafeSiteId(siteId)) {
+        sendJson(res, 400, { error: "Invalid site id" });
+        return;
+      }
+      const repos = await listRepos(readBearer(req), siteId);
       sendJson(res, 200, { repos });
       return;
     }

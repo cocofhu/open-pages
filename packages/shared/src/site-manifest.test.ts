@@ -7,6 +7,7 @@ import {
   looksLikeOpenPagesPublishedContent,
   OPEN_PAGES_SOURCE_URL,
   parseOpenPagesSiteManifest,
+  repoRootLooksEmpty,
   repoRootLooksForeign,
   serializeOpenPagesSiteManifest,
 } from "./site-manifest.js";
@@ -84,6 +85,21 @@ test("assessRepoRootForPublish allows adoptable empty repo", () => {
   });
   assert.equal(check.eligible, true);
   assert.equal(check.reason, "adoptable");
+});
+
+test("assessRepoRootForPublish blocks a code repo that is not Open Pages", () => {
+  const check = assessRepoRootForPublish({
+    siteId: "default",
+    manifestRaw: null,
+    rootEntries: ["README.md", "src", "Cargo.toml"],
+  });
+  assert.equal(check.eligible, false);
+  assert.equal(check.reason, "foreign");
+});
+
+test("repoRootLooksEmpty allows only new-repo files", () => {
+  assert.equal(repoRootLooksEmpty(["README.md", "LICENSE", ".gitignore"]), true);
+  assert.equal(repoRootLooksEmpty(["README.md", "src"]), false);
 });
 
 test("assessRepoRootForPublish blocks mismatched manifest siteId", () => {
