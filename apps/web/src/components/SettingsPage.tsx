@@ -26,6 +26,7 @@ import { hasUnpublishedRepoChanges } from "../lib/repo-sync";
 import { LANGUAGE_OPTIONS, PERMALINK_PRESETS, timezoneOptions } from "../lib/site-options";
 import { ComboSelect } from "./ComboSelect";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ThemeCardMenu } from "./ThemeCardMenu";
 import { ThemeSettingsForm, type ThemeChangeOptions } from "./ThemeFields";
 import { StudioBar } from "./StudioBar";
 
@@ -144,6 +145,7 @@ export function SettingsPage({
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonError, setAddonError] = useState("");
   const [addonStep, setAddonStep] = useState<InstallStep | null>(null);
+  const [openThemeMenuId, setOpenThemeMenuId] = useState<string | null>(null);
   const [selectedPlugin, setSelectedPlugin] = useState<AddonManifest | null>(null);
   const [pluginValues, setPluginValues] = useState<ThemeSettings>({});
   const [pluginYaml, setPluginYaml] = useState("");
@@ -505,6 +507,7 @@ export function SettingsPage({
                 {themes.map((item) => {
                   const swatch = item.tint ?? THEME_TINT[item.id] ?? tintFromId(item.id);
                   const on = draftConfig.theme === item.id;
+                  const showCluster = on || !item.builtin;
                   return (
                     <div className="theme-pick-wrap" key={item.id}>
                       <button
@@ -518,30 +521,21 @@ export function SettingsPage({
                         <strong>{item.label}</strong>
                         <span>{item.description}</span>
                         <small>{item.builtin ? "预装" : "已安装"}</small>
-                        {on ? <em>使用中</em> : null}
                       </button>
-                      {!item.builtin ? (
-                        <div className="theme-card-actions">
-                          <button
-                            type="button"
-                            className="ghost icon-label addon-action"
-                            disabled={addonBusy}
-                            data-testid={`theme-update-${item.id}`}
-                            onClick={() => void submitUpdate(item.id)}
-                          >
-                            <ArrowPathIcon className="ui-icon" aria-hidden="true" />
-                            更新
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost icon-label addon-action"
-                            title={on ? "正在使用的主题不能卸载" : "卸载主题"}
-                            disabled={on || addonBusy}
-                            onClick={() => void mutateAddon(() => onRemoveAddon(item.id))}
-                          >
-                            <TrashIcon className="ui-icon" aria-hidden="true" />
-                            卸载
-                          </button>
+                      {showCluster ? (
+                        <div className="theme-pick-cluster">
+                          {on ? <em className="theme-pick-using">使用中</em> : null}
+                          {!item.builtin ? (
+                            <ThemeCardMenu
+                              themeId={item.id}
+                              open={openThemeMenuId === item.id}
+                              onOpenChange={(next) => setOpenThemeMenuId(next ? item.id : null)}
+                              busy={addonBusy}
+                              inUse={on}
+                              onUpdate={() => void submitUpdate(item.id)}
+                              onRemove={() => void mutateAddon(() => onRemoveAddon(item.id))}
+                            />
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
