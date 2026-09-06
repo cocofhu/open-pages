@@ -73,7 +73,22 @@
     RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Service Worker"
 
     ${If} $DeleteAppDataCheckboxState = 1
+      ; Token is written to secrets.json AND Windows Credential Manager.
+      ; Tauri only wipes %LOCALAPPDATA%\com.openpages.desktop, so a reinstall
+      ; still read the keyring first and came back already signed in.
       RMDir /r "$PROFILE\.open-pages"
+      nsExec::Exec `cmdkey /delete:open-pages`
+      Pop $0
+      nsExec::Exec `cmdkey /delete:open-pages/github-token`
+      Pop $0
+      nsExec::Exec `cmdkey /delete:open-pages/github-session`
+      Pop $0
+      nsExec::Exec `cmdkey /delete:open-pages:github-token`
+      Pop $0
+      nsExec::Exec `cmdkey /delete:open-pages:github-session`
+      Pop $0
+      nsExec::Exec `powershell -NoProfile -NonInteractive -Command "cmdkey /list | ForEach-Object { if ($$_ -match 'target=(\\S*open-pages\\S*)') { cmdkey /delete:$$Matches[1] } }"`
+      Pop $0
     ${EndIf}
 
     RMDir /r "$INSTDIR"
