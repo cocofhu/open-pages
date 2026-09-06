@@ -92,7 +92,7 @@ siteRoutes.get("/github/repos/:owner/:repo/publish-check", async (c) => {
   if (owner !== session.login) throw new ClientError("Cannot inspect another owner's repository", 403);
   const siteId = c.req.query("siteId") ?? "default";
   if (!isSafeSiteId(siteId)) throw new ClientError("Invalid site id");
-  const branch = c.req.query("branch") ?? "main";
+  const branch = c.req.query("branch") || undefined;
   const check = await assessRepoForPublish(session.accessToken, owner, repo, siteId, branch);
   return c.json(check);
 });

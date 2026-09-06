@@ -21,6 +21,7 @@ export {
   assessRepoRootForPublish,
   buildOpenPagesReadme,
   createOpenPagesSiteManifest,
+  looksLikeOpenPagesPublishedContent,
   manifestMatchesSite,
   openPagesManifestFile,
   openPagesReadmeFile,
