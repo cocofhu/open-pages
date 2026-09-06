@@ -159,6 +159,76 @@ button {
   background: color-mix(in srgb, var(--ink) 6%, var(--paper));
 }
 
+.settings-domain {
+  margin: 0 0 18px;
+}
+
+.settings-domain-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-domain-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-domain-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.domain-help-modal {
+  width: min(540px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+}
+
+.domain-help-steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.domain-help-steps li {
+  margin: 8px 0;
+}
+
+.domain-help-split {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+@media (min-width: 560px) {
+  .domain-help-split {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.domain-help-panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.domain-help-panel strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.domain-help-box {
+  background: color-mix(in srgb, var(--paper) 70%, var(--bg));
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-width, 268px) minmax(0, 1fr);

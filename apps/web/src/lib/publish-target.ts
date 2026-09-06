@@ -24,5 +24,6 @@ export function bindingAfterPublish(
     repo: result.repo,
     defaultBranch: "main",
     pagesUrl: result.url,
+    ...(typeof existing?.customDomain === "string" ? { customDomain: existing.customDomain } : {}),
   };
 }
