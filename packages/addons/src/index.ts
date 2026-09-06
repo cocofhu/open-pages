@@ -19,8 +19,10 @@ import {
   BUILTIN_ADDONS,
   isSafeWorkspaceId,
   isThemeId,
+  normalizeThemeListItems,
   type AddonKind,
   type AddonManifest,
+  type ThemeListItemField,
   type ThemeSettingField,
 } from "@open-pages/shared";
 
@@ -114,7 +116,8 @@ async function writeIndex(owner: string, index: AddonIndex): Promise<void> {
     ...addon,
     enabled: addon.kind === "plugin" ? addon.core || !disabled.has(addon.id) : undefined,
   }));
-  return [...builtins, ...index.addons]
+  const extras = await Promise.all(index.addons.map((addon) => refreshStoredAddon(owner, addon)));
+  return [...builtins, ...extras]
     .filter((addon) => !kind || addon.kind === kind)
     .map(publicAddon);
 }
@@ -330,6 +333,19 @@ async function removeAddonUnlocked(owner: string, id: string): Promise<void> {
     return false;
   }
 
+async function refreshStoredAddon(owner: string, addon: StoredAddon): Promise<StoredAddon> {
+  const file = addon.kind === "theme" ? "open-pages.theme.json" : "open-pages.plugin.json";
+  const extension = await readExtensionManifest(join(packageRoot(owner, addon), file));
+  if (!extension) return addon;
+  return {
+    ...addon,
+    label: extension.label ?? addon.label,
+    description: extension.description ?? addon.description,
+    settings: extension.settings ?? addon.settings,
+    tint: extension.tint ?? addon.tint,
+  };
+}
+
 function packageRoot(owner: string, addon: StoredAddon): string {
   return join(ownerRoot(owner), "packages", addon.id, "node_modules", addon.packageName);
 }
@@ -536,6 +552,70 @@ function parseSettingField(value: unknown): ThemeSettingField | null {
             label: item.label.slice(0, 100),
           })),
         };
+  }
+  if (field.type === "list") {
+    const itemFields = Array.isArray(field.itemFields)
+      ? field.itemFields
+          .map(parseListItemField)
+          .filter((item): item is ThemeListItemField => item !== null)
+          .slice(0, 12)
+      : [];
+    if (!itemFields.length) return null;
+    const maxItems = Math.min(
+      24,
+      Math.max(1, typeof field.maxItems === "number" ? Math.floor(field.maxItems) : 12),
+    );
+    const minItems = Math.min(
+      maxItems,
+      Math.max(0, typeof field.minItems === "number" ? Math.floor(field.minItems) : 0),
+    );
+    return {
+      ...base,
+      type: "list",
+      itemLabel: typeof field.itemLabel === "string" ? field.itemLabel.slice(0, 40) : undefined,
+      minItems,
+      maxItems,
+      itemFields,
+      default: normalizeThemeListItems(itemFields, field.default, maxItems, minItems),
+    };
+  }
+  return null;
+}
+
+function parseListItemField(value: unknown): ThemeListItemField | null {
+  if (!value || typeof value !== "object") return null;
+  const field = value as Record<string, unknown>;
+  if (
+    typeof field.key !== "string" ||
+    !/^[a-zA-Z][a-zA-Z0-9_-]{0,79}$/.test(field.key) ||
+    typeof field.label !== "string"
+  ) {
+    return null;
+  }
+  const placeholder =
+    typeof field.placeholder === "string" ? field.placeholder.slice(0, 200) : undefined;
+  const fallback = typeof field.default === "string" ? field.default.slice(0, 2_000) : undefined;
+  if (field.type === "annotated-text") {
+    if (typeof field.tipsKey !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,79}$/.test(field.tipsKey)) {
+      return null;
+    }
+    return {
+      key: field.key,
+      label: field.label.slice(0, 100),
+      type: "annotated-text",
+      tipsKey: field.tipsKey,
+      placeholder,
+      default: fallback,
+    };
+  }
+  if (field.type === "text" || field.type === undefined) {
+    return {
+      key: field.key,
+      label: field.label.slice(0, 100),
+      type: "text",
+      placeholder,
+      default: fallback,
+    };
   }
   return null;
 }

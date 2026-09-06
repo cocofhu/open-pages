@@ -106,6 +106,26 @@ button {
   color: var(--muted);
 }
 
+.boot-screen {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  height: 100%;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.boot-screen .onboarding-card {
+  width: min(520px, 100%);
+}
+
+.settings-repo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 18px;
+}
+
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-width, 268px) minmax(0, 1fr);
@@ -1473,9 +1493,144 @@ li + li > .outline-item.level-1 {
   background: #fff;
 }
 
-.studio-field input:focus {
+.studio-field input:focus,
+.studio-field textarea:focus,
+.studio-annotated-add input:focus {
   outline: 2px solid color-mix(in srgb, var(--ink) 18%, transparent);
   outline-offset: 1px;
+}
+
+.studio-field textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.studio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.studio-list-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.studio-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper, #fff) 92%, #efe6d8);
+}
+
+.studio-list-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.studio-list-actions,
+.studio-annotated-add,
+.studio-list-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.studio-list-actions button,
+.studio-list-add,
+.studio-annotated-add button,
+.studio-annotated-tips button {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.studio-list-add {
+  justify-content: center;
+  padding: 8px 10px;
+}
+
+.studio-list-actions button:disabled,
+.studio-list-add:disabled,
+.studio-annotated-add button:disabled,
+.studio-annotated-add input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.studio-annotated {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.studio-annotated-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 5%, #fff);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.studio-annotated-preview mark {
+  padding: 0 0.2em;
+  border-radius: 4px;
+  background: color-mix(in srgb, #c4784a 28%, #fff);
+}
+
+.studio-annotated-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.studio-annotated-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.studio-annotated-tips li {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.studio-annotated-tips input {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
 }
 
 .studio-chips,

@@ -73,6 +73,14 @@ export const platform = {
     return invoke<PublishRepoCheck>("check_repo_publish", { owner, repo, siteId });
   },
 
+  async downloadRepoSnapshot(owner: string, repo: string) {
+    if (!isTauri()) return api.repoSnapshot(owner, repo);
+    return invoke<{ files: SiteFile[]; defaultBranch: string }>("download_repo_snapshot", {
+      owner,
+      repo,
+    });
+  },
+
   async createRepo(name: string) {
     if (!isTauri()) return api.createRepo(name);
     return invoke<{ owner: string; repo: string; pagesUrl: string; root: string }>("create_repo", {

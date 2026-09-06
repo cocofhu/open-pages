@@ -107,6 +107,33 @@ export async function deleteFile(path: string): Promise<void> {
   await database.delete("files", path);
 }
 
+export async function deleteByPrefix(prefix: string): Promise<number> {
+  const database = await db();
+  const files = (await database.getAll("files")) as FileRow[];
+  let removed = 0;
+  for (const file of files) {
+    if (!file.path.startsWith(prefix)) continue;
+    await database.delete("files", file.path);
+    removed += 1;
+  }
+  return removed;
+}
+
+export async function writeFiles(
+  files: Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>,
+): Promise<void> {
+  const database = await db();
+  const now = Date.now();
+  for (const file of files) {
+    await database.put("files", {
+      path: file.path,
+      content: file.content,
+      encoding: file.encoding ?? "utf8",
+      updatedAt: now,
+    });
+  }
+}
+
 export async function snapshotFiles(): Promise<SiteFile[]> {
   const files = await listFiles();
   return files.map(({ path, content, encoding }) => ({ path, content, encoding }));

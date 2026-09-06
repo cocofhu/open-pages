@@ -124,6 +124,10 @@ export const api = {
     request<PublishRepoCheck>(
       `/sites/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/publish-check?siteId=${encodeURIComponent(siteId)}`,
     ),
+  repoSnapshot: (owner: string, repo: string) =>
+    request<{ files: SiteFile[]; defaultBranch: string }>(
+      `/sites/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/snapshot`,
+    ),
   createRepo: (name: string) =>
     request<{ owner: string; repo: string; pagesUrl: string; root: string }>("/sites/github/repos", {
       method: "POST",

@@ -1,6 +1,6 @@
 import { env } from "../env.js";
 
-export { commitFiles, createRepo, enablePages, listRepos, octokit, assessRepoForPublish, getRepoTextFile, listRepoRootEntries } from "@open-pages/github";
+export { commitFiles, createRepo, enablePages, listRepos, octokit, assessRepoForPublish, getRepoTextFile, listRepoRootEntries, downloadRepoSnapshot } from "@open-pages/github";
 
 export function authorizeUrl(state: string): string {
   const params = new URLSearchParams({

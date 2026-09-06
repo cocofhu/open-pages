@@ -14,6 +14,7 @@ import {
   resolvedColorScheme,
   type AddonKind,
   type AddonManifest,
+  type GithubBinding,
   type SiteConfig,
   type ThemeId,
   type ThemeSettings,
@@ -63,6 +64,9 @@ interface SettingsPageProps {
   error: string | null;
   saving: boolean;
   addons: AddonManifest[];
+  github?: GithubBinding;
+  onResyncRepo?: () => void;
+  onChangeRepo?: () => void;
   onTab: (tab: SettingsTab) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onLoadTheme: (theme: ThemeId) => Promise<{ values: ThemeSettings; yaml: string }>;
@@ -102,6 +106,9 @@ export function SettingsPage({
   error,
   saving,
   addons,
+  github,
+  onResyncRepo,
+  onChangeRepo,
   onTab,
   onDirtyChange,
   onLoadTheme,
@@ -374,6 +381,23 @@ export function SettingsPage({
           {tab === "site" ? (
             <div className="settings-pane-scroll">
               <p className="hint">改完后点保存，站点信息和主题会一起写入。右侧可以先预览未保存的改动。</p>
+              {github ? (
+                <section className="studio-set-group">
+                  <h3>绑定仓库</h3>
+                  <p className="hint">
+                    当前站点同步自 @{github.owner}/{github.repo}。重新同步会更新 source/origin，并再装一遍主题和插件。
+                  </p>
+                  <div className="settings-repo-actions">
+                    <button type="button" className="ghost icon-label" onClick={onResyncRepo}>
+                      <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                      重新同步
+                    </button>
+                    <button type="button" className="ghost" onClick={onChangeRepo}>
+                      更换仓库
+                    </button>
+                  </div>
+                </section>
+              ) : null}
               <div className="grid">
                 <Field testId="cfg-title" label="标题" value={draftConfig.title} onChange={(value) => setSite("title", value)} />
                 <Field testId="cfg-subtitle" label="副标题" value={draftConfig.subtitle} onChange={(value) => setSite("subtitle", value)} />

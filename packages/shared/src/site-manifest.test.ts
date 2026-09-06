@@ -18,6 +18,18 @@ test("parseOpenPagesSiteManifest accepts valid manifest", () => {
   assert.equal(parsed?.schema, "open-pages.site/v1");
 });
 
+test("parseOpenPagesSiteManifest keeps optional theme and addons", () => {
+  const raw = serializeOpenPagesSiteManifest(
+    createOpenPagesSiteManifest("default", {
+      theme: "cocofhu",
+      addons: [{ kind: "theme", source: "cocofhu/cocofhu-theme", enabled: true }],
+    }),
+  );
+  const parsed = parseOpenPagesSiteManifest(raw);
+  assert.equal(parsed?.theme, "cocofhu");
+  assert.equal(parsed?.addons?.[0]?.source, "cocofhu/cocofhu-theme");
+});
+
 test("assessRepoRootForPublish blocks foreign repos without manifest", () => {
   const check = assessRepoRootForPublish({
     siteId: "default",
@@ -83,6 +95,14 @@ test("assessRepoRootForPublish blocks mismatched manifest siteId", () => {
   });
   assert.equal(check.eligible, false);
   assert.equal(check.reason, "bound-other");
+});
+
+test("origin snapshot paths are not treated as pages", async () => {
+  const { fileKind, isOriginPath, originSnapshotPath } = await import("./index.js");
+  assert.equal(isOriginPath("source/origin/_config.yml"), true);
+  assert.equal(originSnapshotPath("_config.yml"), "source/origin/_config.yml");
+  assert.equal(fileKind("source/origin/source/about/index.md"), "other");
+  assert.equal(fileKind("source/about/index.md"), "page");
 });
 
 test("repoRootLooksForeign detects hexo markers", () => {

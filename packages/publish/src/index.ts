@@ -5,6 +5,7 @@ import {
   DEFAULT_SITE_CONFIG,
   isSafeSiteId,
   isUserEditablePath,
+  manifestAddonsFromCatalog,
   openPagesManifestFile,
   openPagesReadmeFile,
   pagesRoot,
@@ -14,6 +15,7 @@ import {
   aboutPageMarkdown,
   welcomeMarkdown,
   WELCOME_POST_PATH,
+  type AddonManifest,
   type SiteConfig,
   type SiteFile,
 } from "@open-pages/shared";
@@ -102,6 +104,7 @@ export async function publishSite(options: {
   createRepo?: boolean;
   sitesRoot?: string;
   addons?: GenerationAddons;
+  catalog?: AddonManifest[];
 }): Promise<{ url: string; owner: string; repo: string; root: string }> {
   const owner = options.owner;
   const repo = parseRepoName(options.repo);
@@ -140,7 +143,12 @@ export async function publishSite(options: {
   } catch {
     // keep empty if missing
   }
-  sourceFiles.push(openPagesManifestFile(options.siteId));
+  sourceFiles.push(
+    openPagesManifestFile(options.siteId, {
+      theme: config.theme,
+      addons: manifestAddonsFromCatalog(options.catalog ?? [], config.theme),
+    }),
+  );
   sourceFiles.push(
     openPagesReadmeFile({
       title: config.title,

@@ -14,6 +14,7 @@ import {
   applySiteConfigToYaml,
   defaultHexoConfigYaml,
   defaultThemeSettings,
+  isOriginPath,
   isThemeId,
   isUserEditablePath,
   parseThemeSettings,
@@ -208,10 +209,11 @@ export async function scaffoldSite(options: ScaffoldOptions): Promise<void> {
 }
 
 export async function writeUserFiles(siteDir: string, files: SiteFile[]): Promise<void> {
-  if (files.length > MAX_FILES) {
+  const writable = files.filter((file) => !isOriginPath(file.path));
+  if (writable.length > MAX_FILES) {
     throw new Error(`Too many files (max ${MAX_FILES})`);
   }
-  for (const file of files) {
+  for (const file of writable) {
     if (!isUserEditablePath(file.path)) {
       throw new Error(`Path not allowed: ${file.path}`);
     }

@@ -5,11 +5,20 @@ export const OPEN_PAGES_MANIFEST_SCHEMA = "open-pages.site/v1";
 export const OPEN_PAGES_SOURCE_URL = "https://github.com/cocofhu/open-pages";
 export const OPEN_PAGES_REPO_DESCRIPTION = "Published with Open Pages — Typora-like Markdown → Hexo → GitHub Pages";
 
+export interface ManifestAddon {
+  kind: "theme" | "plugin";
+  source?: string;
+  id?: string;
+  enabled?: boolean;
+}
+
 export interface OpenPagesSiteManifest {
   schema: typeof OPEN_PAGES_MANIFEST_SCHEMA;
   siteId: string;
   tool: "open-pages";
   updatedAt: string;
+  theme?: string;
+  addons?: ManifestAddon[];
 }
 
 export type PublishRepoReason =
@@ -35,12 +44,17 @@ const FOREIGN_ROOT_MARKERS = new Set([
   "db.json",
 ]);
 
-export function createOpenPagesSiteManifest(siteId: string, updatedAt = new Date()): OpenPagesSiteManifest {
+export function createOpenPagesSiteManifest(
+  siteId: string,
+  extras: { theme?: string; addons?: ManifestAddon[]; updatedAt?: Date } = {},
+): OpenPagesSiteManifest {
   return {
     schema: OPEN_PAGES_MANIFEST_SCHEMA,
     siteId,
     tool: "open-pages",
-    updatedAt: updatedAt.toISOString(),
+    updatedAt: (extras.updatedAt ?? new Date()).toISOString(),
+    ...(extras.theme ? { theme: extras.theme } : {}),
+    ...(extras.addons?.length ? { addons: extras.addons } : {}),
   };
 }
 
@@ -60,6 +74,8 @@ export function parseOpenPagesSiteManifest(raw: string): OpenPagesSiteManifest |
       siteId: data.siteId,
       tool: "open-pages",
       updatedAt: data.updatedAt,
+      theme: typeof data.theme === "string" ? data.theme : undefined,
+      addons: parseManifestAddons(data.addons),
     };
   } catch {
     return null;
@@ -106,10 +122,30 @@ export function publishRepoCheckMessage(reason: PublishRepoReason, detail?: stri
   }
 }
 
-export function openPagesManifestFile(siteId: string): { path: string; content: string } {
+function parseManifestAddons(raw: unknown): ManifestAddon[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const addons: ManifestAddon[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    if (rec.kind !== "theme" && rec.kind !== "plugin") continue;
+    addons.push({
+      kind: rec.kind,
+      source: typeof rec.source === "string" ? rec.source : undefined,
+      id: typeof rec.id === "string" ? rec.id : undefined,
+      enabled: typeof rec.enabled === "boolean" ? rec.enabled : undefined,
+    });
+  }
+  return addons.length ? addons : undefined;
+}
+
+export function openPagesManifestFile(
+  siteId: string,
+  extras?: { theme?: string; addons?: ManifestAddon[] },
+): { path: string; content: string } {
   return {
     path: OPEN_PAGES_MANIFEST_PATH,
-    content: serializeOpenPagesSiteManifest(createOpenPagesSiteManifest(siteId)),
+    content: serializeOpenPagesSiteManifest(createOpenPagesSiteManifest(siteId, extras)),
   };
 }
 

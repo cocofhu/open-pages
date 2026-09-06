@@ -6,6 +6,7 @@ import {
   DEFAULT_SITE_CONFIG,
   isSafeSiteId,
   isUserEditablePath,
+  manifestAddonsFromCatalog,
   openPagesManifestFile,
   openPagesReadmeFile,
   pagesRoot,
@@ -26,7 +27,8 @@ import {
   resetSite,
   syncSite,
 } from "../lib/workspace.js";
-import { assessRepoForPublish, commitFiles, createRepo, enablePages, listRepos } from "../lib/github.js";
+import { assessRepoForPublish, commitFiles, createRepo, downloadRepoSnapshot, enablePages, listRepos } from "../lib/github.js";
+import { listAddons } from "../lib/addons.js";
 import { createConcurrencyGate, createRateLimiter, requestIp } from "../lib/rate-limit.js";
 
 export const siteRoutes = new Hono<{ Variables: { session: SessionData } }>();
@@ -95,6 +97,16 @@ siteRoutes.get("/github/repos/:owner/:repo/publish-check", async (c) => {
   const branch = c.req.query("branch") || undefined;
   const check = await assessRepoForPublish(session.accessToken, owner, repo, siteId, branch);
   return c.json(check);
+});
+
+siteRoutes.get("/github/repos/:owner/:repo/snapshot", async (c) => {
+  const session = c.get("session");
+  if (!session.accessToken || !session.login) return c.json({ error: "Not signed in" }, 401);
+  const owner = c.req.param("owner");
+  const repo = parseRepoName(c.req.param("repo"));
+  if (owner !== session.login) throw new ClientError("Cannot inspect another owner's repository", 403);
+  const snapshot = await downloadRepoSnapshot(session.accessToken, owner, repo);
+  return c.json(snapshot);
 });
 
 siteRoutes.post("/:siteId/ensure", async (c) => {
@@ -179,8 +191,14 @@ siteRoutes.post("/:siteId/publish", async (c) => {
   } catch {
     // keep empty if missing
   }
-  sourceFiles.push(openPagesManifestFile(siteId));
   const siteConfig = config ?? DEFAULT_SITE_CONFIG;
+  const catalog = await listAddons(ownerKey(session));
+  sourceFiles.push(
+    openPagesManifestFile(siteId, {
+      theme: siteConfig.theme,
+      addons: manifestAddonsFromCatalog(catalog, siteConfig.theme),
+    }),
+  );
   sourceFiles.push(
     openPagesReadmeFile({
       title: siteConfig.title,

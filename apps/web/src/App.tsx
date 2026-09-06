@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applySiteConfigToYaml,
   BUILTIN_ADDONS,
+  DEFAULT_SITE_CONFIG,
   defaultFrontMatter,
   defaultHexoConfigYaml,
   defaultSettingsForFields,
@@ -26,7 +27,9 @@ import {
   type ThemeId,
   type ThemeSettings,
 } from "@open-pages/shared";
+import { BootScreen } from "./components/BootScreen";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { RepoOnboarding } from "./components/RepoOnboarding";
 import { errorMessage } from "./lib/errors";
 import type { SettingsDraft } from "./components/SettingsPage";
 import { DocMetaPanel } from "./components/DocMetaPanel";
@@ -41,6 +44,7 @@ import { SettingsPage, type SettingsTab } from "./components/SettingsPage";
 import { Toast, type ToastState } from "./components/Toast";
 import { TopBar, type EditorMode } from "./components/TopBar";
 import type { AuthUser } from "./lib/api";
+import { applyRepoSnapshot } from "./lib/repo-sync";
 import { isTauri, platform } from "./lib/platform";
 import { type OutlineHeading } from "./lib/outline";
 import {
@@ -66,6 +70,11 @@ export function App() {
   const [source, setSource] = useState("");
   const [config, setConfig] = useState<SiteConfig | null>(null);
   const [github, setGithub] = useState<GithubBinding | undefined>();
+  const [boot, setBoot] = useState<{ phase: "loading" | "pick-repo" | "ready"; label: string; percent: number; error?: string }>({
+    phase: "loading",
+    label: "正在打开站点…",
+    percent: 10,
+  });
   const [rawYaml, setRawYaml] = useState("");
   const [mode, setMode] = useState<EditorMode>("wysiwyg");
   const [docMetaOpen, setDocMetaOpen] = useState(false);
@@ -153,11 +162,8 @@ export function App() {
     setDocMetaOpen(false);
   }, []);
 
-  useEffect(() => {
-    void (async () => {
-      const { config: nextConfig, github: binding } = await loadConfig();
-      setConfig(nextConfig);
-      setGithub(binding);
+  const finishOpen = useCallback(
+    async (nextConfig: SiteConfig) => {
       const list = await refreshTree();
       const yamlFile = list.find((file) => file.path === "_config.yml" && file.encoding !== "base64");
       setRawYaml(yamlFile?.content ?? defaultHexoConfigYaml(nextConfig));
@@ -168,8 +174,39 @@ export function App() {
           return kind === "draft" || kind === "page";
         });
       if (first) await openPath(first.path);
+    },
+    [openPath, refreshTree],
+  );
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setBoot({ phase: "loading", label: "正在打开站点…", percent: 16 });
+        const { config: nextConfig, github: binding } = await loadConfig();
+        setConfig(nextConfig);
+        setGithub(binding);
+        if (!binding) {
+          if (navigator.webdriver) {
+            await finishOpen(nextConfig);
+            setBoot({ phase: "ready", label: "", percent: 100 });
+            return;
+          }
+          setBoot({ phase: "pick-repo", label: "", percent: 0 });
+          return;
+        }
+        setBoot({ phase: "loading", label: "正在打开站点…", percent: 70 });
+        await finishOpen(nextConfig);
+        setBoot({ phase: "ready", label: "", percent: 100 });
+      } catch (error) {
+        setBoot({
+          phase: "loading",
+          label: "正在打开站点…",
+          percent: 0,
+          error: errorMessage(error, "打开失败"),
+        });
+      }
     })();
-  }, [openPath, refreshTree]);
+  }, [finishOpen]);
 
   useEffect(() => {
     if (!activePath?.endsWith(".md")) return;
@@ -432,7 +469,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [config?.theme, enqueueWrite, fieldsForTheme, renderSettingsPreview]);
+  }, [config?.theme, enqueueWrite, fieldsForTheme]);
 
   useEffect(() => {
     if (!settingsOpen || !config || !themeReady) return;
@@ -580,6 +617,53 @@ export function App() {
     }
   };
 
+  const bindRepo = async (opts: { repo: string; createRepo?: boolean }) => {
+    const owner = user?.login;
+    if (!owner) {
+      setBoot({ phase: "pick-repo", label: "", percent: 0, error: "请先登录 GitHub" });
+      return;
+    }
+    setBoot({ phase: "loading", label: "正在同步仓库…", percent: 8 });
+    try {
+      if (opts.createRepo) {
+        const created = await platform.createRepo(opts.repo);
+        const nextConfig = config ?? { ...DEFAULT_SITE_CONFIG };
+        const binding: GithubBinding = {
+          owner: created.owner,
+          repo: created.repo,
+          defaultBranch: "main",
+          pagesUrl: created.pagesUrl,
+        };
+        await saveConfig(nextConfig, binding);
+        setConfig(nextConfig);
+        setGithub(binding);
+        await finishOpen(nextConfig);
+        setBoot({ phase: "ready", label: "", percent: 100 });
+        return;
+      }
+      setBoot({ phase: "loading", label: "正在拉取仓库…", percent: 18 });
+      const snapshot = await platform.downloadRepoSnapshot(owner, opts.repo);
+      const result = await applyRepoSnapshot(snapshot, owner, opts.repo, (progress) =>
+        setBoot({ phase: "loading", label: progress.label, percent: progress.percent }),
+      );
+      await saveConfig(result.config, result.binding);
+      setConfig(result.config);
+      setGithub(result.binding);
+      const nextAddons = await platform.addons().catch(() => ({ addons: [] as AddonManifest[] }));
+      if (Array.isArray(nextAddons.addons) && nextAddons.addons.length) setAddons(nextAddons.addons);
+      await finishOpen(result.config);
+      setBoot({ phase: "ready", label: "", percent: 100 });
+      if (result.warning) setToast({ kind: "error", text: result.warning });
+    } catch (error) {
+      setBoot({
+        phase: "loading",
+        label: "正在同步仓库…",
+        percent: 0,
+        error: errorMessage(error, "同步失败"),
+      });
+    }
+  };
+
   const login = () => {
     void platform
       .login()
@@ -649,11 +733,30 @@ export function App() {
     nodes[heading.index]?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  if (!config) {
+  if (boot.phase !== "ready" || !config) {
+    if (boot.phase === "pick-repo") {
+      return (
+        <RepoOnboarding
+          user={user}
+          onLogin={login}
+          onSessionStale={refreshUser}
+          onPick={(opts) => void bindRepo(opts)}
+        />
+      );
+    }
     return (
-      <div className="boot" data-testid="boot">
-        正在从本地打开站点…
-      </div>
+      <BootScreen
+        title={boot.label || "正在打开…"}
+        percent={boot.percent}
+        error={boot.error}
+        onRetry={() => {
+          if (github) {
+            void bindRepo({ repo: github.repo });
+            return;
+          }
+          setBoot({ phase: "pick-repo", label: "", percent: 0 });
+        }}
+      />
     );
   }
 
@@ -751,6 +854,11 @@ export function App() {
           error={themePreviewError}
           saving={settingsSaving}
           addons={addons}
+          github={github}
+          onResyncRepo={() => {
+            if (github) void bindRepo({ repo: github.repo });
+          }}
+          onChangeRepo={() => setBoot({ phase: "pick-repo", label: "", percent: 0 })}
           onTab={(tab) =>
             go(tab === "site" ? "settings-site" : tab === "plugin" ? "settings-plugin" : "settings")
           }

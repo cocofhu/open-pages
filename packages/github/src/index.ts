@@ -273,6 +273,88 @@ export async function assessRepoForPublish(
   return assessRepoRootForPublish({ siteId, manifestRaw, rootEntries, configYaml, readme });
 }
 
+const SNAPSHOT_SKIP = /^(node_modules|themes|public|\.builds|source\/origin)(\/|$)/;
+const SNAPSHOT_BINARY = /\.(png|jpe?g|gif|webp|svg|ico|mp4|webm|woff2?|ttf|otf|eot|pdf|zip|gz|mp3|wav)$/i;
+const SNAPSHOT_MAX_FILE = 2 * 1024 * 1024;
+const SNAPSHOT_MAX_FILES = 400;
+
+export interface SnapshotProgress {
+  label: string;
+  percent: number;
+  done: number;
+  total: number;
+}
+
+function looksBinary(bytes: Buffer, path: string): boolean {
+  if (SNAPSHOT_BINARY.test(path)) return true;
+  return bytes.includes(0);
+}
+
+async function mapPool<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= items.length) return;
+        results[index] = await worker(items[index], index);
+      }
+    }),
+  );
+  return results;
+}
+
+export async function downloadRepoSnapshot(
+  token: string,
+  owner: string,
+  repo: string,
+  defaultBranch?: string,
+  onProgress?: (progress: SnapshotProgress) => void,
+): Promise<{ files: SiteFile[]; defaultBranch: string }> {
+  const gh = octokit(token);
+  const branch = await resolveRepoBranch(token, owner, repo, defaultBranch);
+  const ref = await gh.git.getRef({ owner, repo, ref: `heads/${branch}` });
+  const tree = await gh.git.getTree({
+    owner,
+    repo,
+    tree_sha: ref.data.object.sha,
+    recursive: "true",
+  });
+  const blobs = tree.data.tree.filter(
+    (entry) =>
+      entry.type === "blob" &&
+      typeof entry.path === "string" &&
+      typeof entry.sha === "string" &&
+      !SNAPSHOT_SKIP.test(entry.path) &&
+      (entry.size ?? 0) <= SNAPSHOT_MAX_FILE,
+  );
+  if (blobs.length > SNAPSHOT_MAX_FILES) {
+    throw new Error(`仓库文件太多（最多 ${SNAPSHOT_MAX_FILES} 个），请换一个 Open Pages 站点仓库。`);
+  }
+  onProgress?.({ label: "正在读取仓库文件列表", percent: 12, done: 0, total: blobs.length });
+  let done = 0;
+  const files = await mapPool(blobs, 6, async (entry) => {
+    const blob = await gh.git.getBlob({ owner, repo, file_sha: entry.sha! });
+    const raw = Buffer.from(String(blob.data.content).replace(/\n/g, ""), "base64");
+    const binary = looksBinary(raw, entry.path!);
+    done += 1;
+    onProgress?.({
+      label: `正在下载 ${entry.path}`,
+      percent: 12 + (58 * done) / Math.max(blobs.length, 1),
+      done,
+      total: blobs.length,
+    });
+    return {
+      path: entry.path!,
+      content: binary ? raw.toString("base64") : raw.toString("utf8"),
+      encoding: binary ? ("base64" as const) : ("utf8" as const),
+    };
+  });
+  return { files, defaultBranch: branch };
+}
+
 export async function enablePages(token: string, owner: string, repo: string): Promise<string> {
   const gh = octokit(token);
   try {

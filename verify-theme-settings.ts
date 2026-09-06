@@ -72,6 +72,8 @@ function casesFor(theme: ThemeId): SettingCase[] {
           values: { ...defaults, [field.key]: option.value },
         });
       }
+    } else if (field.type === "list") {
+      continue;
     } else if (field.type === "toggle") {
       for (const value of [false, true]) {
         cases.push({ name: `${field.key}=${value}`, values: { ...defaults, [field.key]: value } });

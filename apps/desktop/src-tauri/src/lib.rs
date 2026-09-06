@@ -677,6 +677,17 @@ async fn check_repo_publish(owner: String, repo: String, site_id: String) -> Res
 }
 
 #[tauri::command]
+async fn download_repo_snapshot(owner: String, repo: String) -> Result<Value, String> {
+    github_auth::require_token()?;
+    control_request(
+        reqwest::Method::GET,
+        &format!("/repos/{owner}/{repo}/snapshot"),
+        None,
+    )
+    .await
+}
+
+#[tauri::command]
 async fn list_addons(kind: Option<String>) -> Result<Value, String> {
     let path = match kind.as_deref() {
         Some("theme") => "/addons?kind=theme",
@@ -733,6 +744,7 @@ pub fn run() {
             list_repos,
             create_repo,
             check_repo_publish,
+            download_repo_snapshot,
             list_addons,
             install_addon,
             set_addon_enabled,

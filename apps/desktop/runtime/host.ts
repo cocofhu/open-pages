@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { createAddonStore } from "@open-pages/addons";
-import { assessRepoForPublish, createRepo, listRepos } from "@open-pages/github";
+import { assessRepoForPublish, createRepo, downloadRepoSnapshot, listRepos } from "@open-pages/github";
 import { localSiteDir, previewLocalSite, publishSite } from "@open-pages/publish";
 import {
   DEFAULT_SITE_CONFIG,
@@ -162,6 +162,14 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
       sendJson(res, 200, check);
       return;
     }
+    const snapshot = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/snapshot$/);
+    if (req.method === "GET" && snapshot) {
+      const owner = decodeURIComponent(snapshot[1]);
+      const repo = parseRepoName(decodeURIComponent(snapshot[2]));
+      const result = await downloadRepoSnapshot(readBearer(req), owner, repo);
+      sendJson(res, 200, result);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/addons") {
       const rawKind = url.searchParams.get("kind");
       const kind = rawKind === "theme" || rawKind === "plugin" ? rawKind : undefined;
@@ -231,6 +239,7 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
         repo: body.repo,
         createRepo: body.createRepo,
         addons: await generationAddons(body.config),
+        catalog: await desktopAddons.listAddons(DESKTOP_ADDON_OWNER),
       });
       sendJson(res, 200, { ok: true, ...result });
       return;

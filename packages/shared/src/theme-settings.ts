@@ -1,6 +1,8 @@
 import type { ThemeId } from "./index.js";
 
-export type ThemeSettingValue = string | boolean;
+export type ThemeHoverTip = { match: string; tip: string };
+export type ThemeListItem = Record<string, string | ThemeHoverTip[]>;
+export type ThemeSettingValue = string | boolean | ThemeListItem[];
 export type ThemeSettings = Record<string, ThemeSettingValue>;
 
 type FieldBase = {
@@ -10,6 +12,23 @@ type FieldBase = {
   yamlPath: string;
   group: string;
 };
+
+export type ThemeListItemField =
+  | {
+      key: string;
+      label: string;
+      type: "text";
+      placeholder?: string;
+      default?: string;
+    }
+  | {
+      key: string;
+      label: string;
+      type: "annotated-text";
+      tipsKey: string;
+      placeholder?: string;
+      default?: string;
+    };
 
 export type ThemeSettingField =
   | (FieldBase & {
@@ -23,6 +42,14 @@ export type ThemeSettingField =
       type: "swatch";
       options: { value: string; label: string; color: string }[];
       default: string;
+    })
+  | (FieldBase & {
+      type: "list";
+      itemLabel?: string;
+      minItems?: number;
+      maxItems?: number;
+      itemFields: ThemeListItemField[];
+      default: ThemeListItem[];
     });
 
 export function themeConfigPath(theme: ThemeId): string {
@@ -485,8 +512,78 @@ export function defaultThemeSettings(theme: ThemeId): ThemeSettings {
 
 export function defaultSettingsForFields(fields: ThemeSettingField[]): ThemeSettings {
   const values: ThemeSettings = {};
-  for (const field of fields) values[field.key] = field.default;
+  for (const field of fields) values[field.key] = cloneThemeSettingValue(field.default);
   return values;
+}
+
+export function emptyThemeListItem(itemFields: ThemeListItemField[]): ThemeListItem {
+  return normalizeThemeListItem(itemFields, {});
+}
+
+export function cloneThemeSettingValue(value: ThemeSettingValue): ThemeSettingValue {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => cloneListItem(item));
+}
+
+function cloneListItem(item: ThemeListItem): ThemeListItem {
+  const next: ThemeListItem = {};
+  for (const [key, val] of Object.entries(item)) {
+    next[key] = Array.isArray(val) ? val.map((tip) => ({ match: tip.match, tip: tip.tip })) : val;
+  }
+  return next;
+}
+
+export function listFieldMaxItems(field: Extract<ThemeSettingField, { type: "list" }>): number {
+  return Math.min(24, Math.max(1, field.maxItems ?? 12));
+}
+
+export function listFieldMinItems(field: Extract<ThemeSettingField, { type: "list" }>): number {
+  return Math.min(listFieldMaxItems(field), Math.max(0, Math.floor(field.minItems ?? 0)));
+}
+
+export function normalizeThemeListItems(
+  itemFields: ThemeListItemField[],
+  value: unknown,
+  maxItems = 12,
+  minItems = 0,
+): ThemeListItem[] {
+  const items = Array.isArray(value)
+    ? value.slice(0, maxItems).map((item) => normalizeThemeListItem(itemFields, item))
+    : [];
+  while (items.length < minItems && items.length < maxItems) {
+    items.push(emptyThemeListItem(itemFields));
+  }
+  return items;
+}
+
+export function normalizeThemeListItem(
+  itemFields: ThemeListItemField[],
+  value: unknown,
+): ThemeListItem {
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const item: ThemeListItem = {};
+  for (const field of itemFields) {
+    const found = raw[field.key];
+    item[field.key] = typeof found === "string" ? found : (field.default ?? "");
+    if (field.type === "annotated-text") {
+      const tips = raw[field.tipsKey];
+      item[field.tipsKey] = Array.isArray(tips)
+        ? tips
+            .map((tip) => {
+              if (!tip || typeof tip !== "object") return null;
+              const match = String((tip as { match?: unknown }).match ?? "");
+              const note = String((tip as { tip?: unknown }).tip ?? "");
+              return match ? { match, tip: note } : null;
+            })
+            .filter((tip): tip is ThemeHoverTip => tip !== null)
+            .slice(0, 8)
+        : [];
+    }
+  }
+  return item;
 }
 
 export function serializeThemeSettings(
@@ -494,7 +591,7 @@ export function serializeThemeSettings(
   values: ThemeSettings,
   fields = themeSettingFields(theme),
 ): string {
-  const tree: YamlNode = {};
+  const tree: YamlMap = {};
   for (const field of fields) {
     const raw = values[field.key] ?? field.default;
     setYamlPath(tree, field.yamlPath, coerceFieldValue(field, raw));
@@ -556,10 +653,22 @@ export function resolvedColorScheme(
   return null;
 }
 
-type YamlNode = { [key: string]: YamlScalar | YamlNode };
 type YamlScalar = string | boolean | number;
+type YamlMap = { [key: string]: YamlValue };
+type YamlValue = YamlScalar | YamlMap | YamlValue[];
 
 function coerceFieldValue(field: ThemeSettingField, value: unknown): ThemeSettingValue {
+  if (field.type === "list") {
+    if (!Array.isArray(value) || (value.length === 0 && field.default.length > 0 && listFieldMinItems(field) > 0)) {
+      return cloneThemeSettingValue(field.default);
+    }
+    return normalizeThemeListItems(
+      field.itemFields,
+      value,
+      listFieldMaxItems(field),
+      listFieldMinItems(field),
+    );
+  }
   if (field.type === "toggle") {
     if (typeof value === "boolean") return value;
     if (value === "true" || value === "yes" || value === 1) return true;
@@ -571,38 +680,82 @@ function coerceFieldValue(field: ThemeSettingField, value: unknown): ThemeSettin
   return field.default;
 }
 
-function setYamlPath(tree: YamlNode, path: string, value: ThemeSettingValue): void {
+function setYamlPath(tree: YamlMap, path: string, value: ThemeSettingValue): void {
   const parts = path.split(".");
-  let current: YamlNode = tree;
+  let current: YamlMap = tree;
   for (const part of parts.slice(0, -1)) {
     const next = current[part];
-    if (!next || typeof next !== "object") current[part] = {};
-    current = current[part] as YamlNode;
+    if (!next || typeof next !== "object" || Array.isArray(next)) current[part] = {};
+    current = current[part] as YamlMap;
   }
   current[parts[parts.length - 1]!] = value;
 }
 
-function getYamlPath(tree: YamlNode, path: string): unknown {
+function getYamlPath(tree: YamlMap, path: string): unknown {
   let current: unknown = tree;
   for (const part of path.split(".")) {
-    if (!current || typeof current !== "object") return undefined;
-    current = (current as YamlNode)[part];
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as YamlMap)[part];
   }
   return current;
 }
 
-function serializeYaml(node: YamlNode, indent = 0): string {
+function serializeYaml(node: YamlMap, indent = 0): string {
+  return Object.entries(node)
+    .flatMap(([key, value]) => serializeEntry(key, value, indent))
+    .join("\n");
+}
+
+function serializeEntry(key: string, value: YamlValue, indent: number): string[] {
+  const pad = "  ".repeat(indent);
+  if (Array.isArray(value)) {
+    if (!value.length) return [`${pad}${key}: []`];
+    return [`${pad}${key}:`, ...serializeSeq(value, indent + 1)];
+  }
+  if (value && typeof value === "object") {
+    const nested = serializeYaml(value, indent + 1);
+    return nested ? [`${pad}${key}:`, nested] : [`${pad}${key}: {}`];
+  }
+  return [`${pad}${key}: ${yamlScalar(value)}`];
+}
+
+function serializeSeq(items: YamlValue[], indent: number): string[] {
   const pad = "  ".repeat(indent);
   const lines: string[] = [];
-  for (const [key, value] of Object.entries(node)) {
-    if (value && typeof value === "object") {
-      lines.push(`${pad}${key}:`);
-      lines.push(serializeYaml(value, indent + 1));
+  for (const item of items) {
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const entries = Object.entries(item);
+      if (!entries.length) {
+        lines.push(`${pad}- {}`);
+        continue;
+      }
+      const [firstKey, firstVal] = entries[0]!;
+      if (Array.isArray(firstVal)) {
+        if (!firstVal.length) lines.push(`${pad}- ${firstKey}: []`);
+        else {
+          lines.push(`${pad}- ${firstKey}:`);
+          lines.push(...serializeSeq(firstVal, indent + 2));
+        }
+      } else if (firstVal && typeof firstVal === "object") {
+        const nested = serializeYaml(firstVal, indent + 2);
+        lines.push(`${pad}- ${firstKey}:`);
+        if (nested) lines.push(nested);
+      } else {
+        lines.push(`${pad}- ${firstKey}: ${yamlScalar(firstVal)}`);
+      }
+      for (const [key, val] of entries.slice(1)) {
+        lines.push(...serializeEntry(key, val, indent + 1));
+      }
       continue;
     }
-    lines.push(`${pad}${key}: ${yamlScalar(value)}`);
+    if (Array.isArray(item)) {
+      lines.push(`${pad}-`);
+      lines.push(...serializeSeq(item, indent + 1));
+      continue;
+    }
+    lines.push(`${pad}- ${yamlScalar(item)}`);
   }
-  return lines.join("\n");
+  return lines;
 }
 
 function yamlScalar(value: YamlScalar): string {
@@ -620,28 +773,111 @@ function yamlScalar(value: YamlScalar): string {
   return value;
 }
 
-function parseSimpleYaml(text: string): YamlNode {
-  const root: YamlNode = {};
-  const stack: { indent: number; node: YamlNode }[] = [{ indent: -1, node: root }];
-  for (const raw of text.split("\n")) {
-    const trimmed = raw.replace(/\s+#.*$/, "");
+function parseSimpleYaml(text: string): YamlMap {
+  const root: YamlMap = {};
+  type Frame =
+    | { indent: number; kind: "map"; map: YamlMap }
+    | { indent: number; kind: "seq"; seq: YamlValue[] };
+  const stack: Frame[] = [{ indent: -1, kind: "map", map: root }];
+  const lines = text.split("\n");
+
+  const peekSeq = (from: number, parentIndent: number): boolean => {
+    for (let i = from + 1; i < lines.length; i += 1) {
+      const next = stripYamlComment(lines[i]!);
+      if (!next.trim() || next.trim().startsWith("#")) continue;
+      const indent = next.match(/^(\s*)/)?.[1].length ?? 0;
+      if (indent <= parentIndent) return false;
+      return /^\s*- /.test(next) || /^\s*-$/.test(next);
+    }
+    return false;
+  };
+
+  const pushValue = (indent: number, value: YamlValue, empty: boolean): void => {
+    if (empty && typeof value === "object" && !Array.isArray(value)) {
+      stack.push({ indent, kind: "map", map: value });
+    } else if (empty && Array.isArray(value)) {
+      stack.push({ indent, kind: "seq", seq: value });
+    }
+  };
+
+  const assignKey = (indent: number, key: string, value: YamlValue, empty: boolean): void => {
+    while (stack.length > 1 && indent <= stack[stack.length - 1]!.indent) stack.pop();
+    const parent = stack[stack.length - 1]!;
+    if (parent.kind === "map") {
+      parent.map[key] = value;
+      pushValue(indent, value, empty);
+      return;
+    }
+    const last = parent.seq[parent.seq.length - 1];
+    if (last && typeof last === "object" && !Array.isArray(last)) {
+      last[key] = value;
+      pushValue(indent, value, empty);
+    }
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = stripYamlComment(lines[i]!);
     if (!trimmed.trim() || trimmed.trim().startsWith("#")) continue;
+    const indent = trimmed.match(/^(\s*)/)?.[1].length ?? 0;
+    const seq = trimmed.match(/^(\s*)- (.*)$/) ?? (trimmed.match(/^(\s*)-$/) ? [trimmed, trimmed.match(/^(\s*)/)?.[1] ?? "", ""] : null);
+
+    if (seq) {
+      const rest = (seq[2] ?? "").trim();
+      while (stack.length > 1 && indent < stack[stack.length - 1]!.indent) stack.pop();
+      let parent = stack[stack.length - 1]!;
+      if (parent.kind !== "seq" || indent !== parent.indent) {
+        while (stack.length > 1 && indent <= stack[stack.length - 1]!.indent) stack.pop();
+        parent = stack[stack.length - 1]!;
+      }
+      if (parent.kind !== "seq") continue;
+
+      if (!rest) {
+        const child: YamlMap = {};
+        parent.seq.push(child);
+        stack.push({ indent: indent + 2, kind: "map", map: child });
+        continue;
+      }
+      const keyed = rest.match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
+      if (!keyed) {
+        parent.seq.push(parseYamlScalar(rest));
+        continue;
+      }
+      const key = keyed[1]!;
+      const after = keyed[2] ?? "";
+      const item: YamlMap = {};
+      parent.seq.push(item);
+      stack.push({ indent: indent + 2, kind: "map", map: item });
+      if (after === "[]") {
+        item[key] = [];
+      } else if (after === "") {
+        const child = peekSeq(i, indent + 2) ? ([] as YamlValue[]) : {};
+        item[key] = child;
+        pushValue(indent + 2, child, true);
+      } else {
+        item[key] = parseYamlScalar(after);
+      }
+      continue;
+    }
+
     const match = trimmed.match(/^(\s*)([A-Za-z0-9_.-]+):\s*(.*)$/);
     if (!match) continue;
-    const indent = match[1].length;
     const key = match[2]!;
     const rest = match[3] ?? "";
-    while (stack.length > 1 && indent <= stack[stack.length - 1]!.indent) stack.pop();
-    const parent = stack[stack.length - 1]!.node;
-    if (rest === "") {
-      const child: YamlNode = {};
-      parent[key] = child;
-      stack.push({ indent, node: child });
+    if (rest === "[]") {
+      assignKey(indent, key, [], false);
+    } else if (rest === "") {
+      const child = peekSeq(i, indent) ? ([] as YamlValue[]) : {};
+      assignKey(indent, key, child, true);
     } else {
-      parent[key] = parseYamlScalar(rest);
+      assignKey(indent, key, parseYamlScalar(rest), false);
     }
   }
   return root;
+}
+
+function stripYamlComment(raw: string): string {
+  if (raw.includes("#") && !/['"]/.test(raw)) return raw.replace(/\s+#.*$/, "");
+  return raw;
 }
 
 function parseYamlScalar(raw: string): YamlScalar {
@@ -649,10 +885,14 @@ function parseYamlScalar(raw: string): YamlScalar {
   if (value === "true") return true;
   if (value === "false") return false;
   if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
     return value.slice(1, -1);
   }
   return value;

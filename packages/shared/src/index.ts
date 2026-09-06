@@ -1,13 +1,22 @@
 export {
+  cloneThemeSettingValue,
   defaultThemeSettings,
   defaultSettingsForFields,
+  emptyThemeListItem,
   isThemeConfigPath,
+  listFieldMaxItems,
+  listFieldMinItems,
+  normalizeThemeListItem,
+  normalizeThemeListItems,
   parseThemeSettings,
   pluginConfigPath,
   resolvedColorScheme,
   serializeThemeSettings,
   themeConfigPath,
   themeSettingFields,
+  type ThemeHoverTip,
+  type ThemeListItem,
+  type ThemeListItemField,
   type ThemeSettingField,
   type ThemeSettingValue,
   type ThemeSettings,
@@ -29,10 +38,12 @@ export {
   publishRepoCheckMessage,
   repoRootLooksForeign,
   serializeOpenPagesSiteManifest,
+  type ManifestAddon,
   type OpenPagesSiteManifest,
   type PublishRepoCheck,
   type PublishRepoReason,
 } from "./site-manifest.js";
+import type { ManifestAddon } from "./site-manifest.js";
 import {
   isThemeConfigPath,
   themeSettingFields,
@@ -271,8 +282,21 @@ export function slugify(input: string): string {
   return slug || `post-${Date.now()}`;
 }
 
+export const ORIGIN_PREFIX = "source/origin/";
+
+export function isOriginPath(path: string): boolean {
+  return path.replaceAll("\\", "/").startsWith(ORIGIN_PREFIX);
+}
+
+export function originSnapshotPath(repoPath: string): string {
+  const normalized = repoPath.replaceAll("\\", "/").replace(/^\/+/, "");
+  if (isOriginPath(normalized)) return normalized;
+  return `${ORIGIN_PREFIX}${normalized}`;
+}
+
 export function fileKind(path: string): FileKind {
   const normalized = path.replaceAll("\\", "/");
+  if (isOriginPath(normalized)) return "other";
   if (normalized === "_config.yml" || isThemeConfigPath(normalized)) return "config";
   if (/\.(png|jpe?g|gif|webp|svg)$/i.test(normalized)) return "image";
   if (normalized.startsWith("source/_posts/")) return "post";
@@ -348,6 +372,67 @@ export function parseSiteConfig(input: unknown): SiteConfig {
     permalink: field("permalink", DEFAULT_SITE_CONFIG.permalink, 200),
     theme: raw.theme,
   };
+}
+
+function yamlScalar(yaml: string, key: string): string | undefined {
+  const match = yaml.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
+  if (!match) return undefined;
+  return match[1].trim().replace(/^['"]|['"]$/g, "");
+}
+
+export function siteConfigFromHexoYaml(yaml: string, fallback: SiteConfig = DEFAULT_SITE_CONFIG): SiteConfig {
+  const theme = yamlScalar(yaml, "theme") ?? fallback.theme;
+  return parseSiteConfig({
+    ...fallback,
+    title: yamlScalar(yaml, "title") ?? fallback.title,
+    subtitle: yamlScalar(yaml, "subtitle") ?? fallback.subtitle,
+    description: yamlScalar(yaml, "description") ?? fallback.description,
+    author: yamlScalar(yaml, "author") ?? fallback.author,
+    avatar: yamlScalar(yaml, "avatar") ?? fallback.avatar,
+    language: yamlScalar(yaml, "language") ?? fallback.language,
+    timezone: yamlScalar(yaml, "timezone") ?? fallback.timezone,
+    url: yamlScalar(yaml, "url") ?? fallback.url,
+    root: yamlScalar(yaml, "root") ?? fallback.root,
+    permalink: yamlScalar(yaml, "permalink") ?? fallback.permalink,
+    theme: isThemeId(theme) ? theme : fallback.theme,
+  });
+}
+
+export function addonInstallSource(addon: AddonManifest): string | undefined {
+  if (addon.source.type === "github") {
+    return addon.source.ref ? `${addon.source.repo}#${addon.source.ref}` : addon.source.repo;
+  }
+  if (addon.source.type === "npm") {
+    return addon.source.version && addon.source.version !== "latest"
+      ? `${addon.source.packageName}@${addon.source.version}`
+      : addon.source.packageName;
+  }
+  return undefined;
+}
+
+export function manifestAddonsFromCatalog(addons: AddonManifest[], theme: string): ManifestAddon[] {
+  const recorded: ManifestAddon[] = [];
+  const currentTheme = addons.find((addon) => addon.kind === "theme" && addon.id === theme);
+  if (currentTheme && !currentTheme.builtin) {
+    const source = addonInstallSource(currentTheme);
+    if (source) recorded.push({ kind: "theme", source, id: currentTheme.id, enabled: true });
+  }
+  for (const addon of addons) {
+    if (addon.kind !== "plugin" || addon.builtin) {
+      if (addon.kind === "plugin" && addon.builtin && !addon.core && addon.enabled === false) {
+        recorded.push({ kind: "plugin", id: addon.id, enabled: false });
+      }
+      continue;
+    }
+    const source = addonInstallSource(addon);
+    recorded.push({
+      kind: "plugin",
+      id: addon.id,
+      source,
+      enabled: addon.enabled !== false,
+    });
+  }
+  return recorded;
 }
 
 export function parseFrontMatter(raw: string): { matter: FrontMatter; body: string } {
