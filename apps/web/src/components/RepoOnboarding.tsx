@@ -58,8 +58,16 @@ export function RepoOnboarding({
         setRepos(usable);
         // Keep the user's tab if they already switched to create while the list
         // was loading; only force create when there is nothing to pick.
-        setCreateNew((prev) => (usable.length === 0 ? true : prev));
-        setRepo((current) => current || usable[0]?.name || "");
+        // Do not inject a bindable name into an empty create form (that would
+        // look like a false "already exists" conflict after the list returns).
+        setCreateNew((prev) => {
+          const nextCreate = usable.length === 0 ? true : prev;
+          setRepo((current) => {
+            if (current) return current;
+            return nextCreate ? "" : usable[0]?.name || "";
+          });
+          return nextCreate;
+        });
       })
       .catch((err: Error) => {
         setError(err.message);
