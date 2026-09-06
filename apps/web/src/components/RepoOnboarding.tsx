@@ -56,7 +56,9 @@ export function RepoOnboarding({
       .then((data) => {
         const usable = bindableRepos(data.repos);
         setRepos(usable);
-        setCreateNew(usable.length === 0);
+        // Keep the user's tab if they already switched to create while the list
+        // was loading; only force create when there is nothing to pick.
+        setCreateNew((prev) => (usable.length === 0 ? true : prev));
         setRepo((current) => current || usable[0]?.name || "");
       })
       .catch((err: Error) => {
