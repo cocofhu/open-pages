@@ -110,12 +110,18 @@ export const platform = {
       owner?: string;
       repo: string;
       createRepo?: boolean;
+      customDomain?: string | null;
     },
   ) {
     if (!isTauri()) return api.publish(siteId, payload);
     return invoke<{ ok: boolean; url: string; owner: string; repo: string }>("publish_site", {
       payload: { siteId, ...payload },
     });
+  },
+
+  async pagesDomain(owner: string, repo: string): Promise<{ customDomain: string | null }> {
+    if (!isTauri()) return api.pagesDomain(owner, repo);
+    return invoke<{ customDomain: string | null }>("pages_domain", { owner, repo });
   },
 
   async installAddon(source: string, kind: AddonKind, onProgress?: (step: InstallStep) => void) {

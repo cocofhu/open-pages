@@ -99,6 +99,7 @@ export async function applyRepoSnapshot(
   owner: string,
   repo: string,
   onProgress?: (progress: SyncProgress) => void,
+  previous?: GithubBinding,
 ): Promise<RepoSyncResult> {
   const liveFromSnapshot = snapshot.files.filter((file) => isLiveImportPath(file.path));
   const useBlankSeed = liveFromSnapshot.length === 0;
@@ -147,6 +148,7 @@ export async function applyRepoSnapshot(
       owner,
       repo,
       defaultBranch: snapshot.defaultBranch,
+      ...(typeof previous?.customDomain === "string" ? { customDomain: previous.customDomain } : {}),
     },
     warning,
   };

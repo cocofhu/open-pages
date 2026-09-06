@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { createAddonStore } from "@open-pages/addons";
-import { assessRepoForPublish, createRepo, downloadRepoSnapshot, listRepos } from "@open-pages/github";
+import { assessRepoForPublish, createRepo, downloadRepoSnapshot, listRepos, readPagesCustomDomain } from "@open-pages/github";
 import { localSiteDir, previewLocalSite, publishSite } from "@open-pages/publish";
 import {
   DEFAULT_SITE_CONFIG,
@@ -167,6 +167,14 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
       sendJson(res, 200, check);
       return;
     }
+    const pagesDomain = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/pages-domain$/);
+    if (req.method === "GET" && pagesDomain) {
+      const owner = decodeURIComponent(pagesDomain[1]);
+      const repo = parseRepoName(decodeURIComponent(pagesDomain[2]));
+      const customDomain = await readPagesCustomDomain(readBearer(req), owner, repo);
+      sendJson(res, 200, { customDomain });
+      return;
+    }
     const snapshot = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/snapshot$/);
     if (req.method === "GET" && snapshot) {
       const owner = decodeURIComponent(snapshot[1]);
@@ -252,6 +260,7 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
         owner: string;
         repo: string;
         createRepo?: boolean;
+        customDomain?: string | null;
       }>(req);
       const result = await publishSite({
         token,
@@ -261,6 +270,7 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
         owner: body.owner,
         repo: body.repo,
         createRepo: body.createRepo,
+        customDomain: body.customDomain,
         addons: await generationAddons(body.config),
         catalog: await desktopAddons.listAddons(DESKTOP_ADDON_OWNER),
       });

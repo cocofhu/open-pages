@@ -11,6 +11,7 @@ import {
 import {
   applySiteConfigToYaml,
   isThemeId,
+  parseCustomDomain,
   resolvedColorScheme,
   type AddonKind,
   type AddonManifest,
@@ -21,7 +22,7 @@ import {
 } from "@open-pages/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { InstallStep } from "../lib/api";
-import { isTauri } from "../lib/platform";
+import { isTauri, platform } from "../lib/platform";
 import { hasUnpublishedRepoChanges } from "../lib/repo-sync";
 import { LANGUAGE_OPTIONS, PERMALINK_PRESETS, timezoneOptions } from "../lib/site-options";
 import { ComboSelect } from "./ComboSelect";
@@ -53,6 +54,7 @@ export type SettingsDraft = {
   rawYaml: string;
   themeDrafts: Partial<Record<ThemeId, ThemeSettings>>;
   themeYamlDrafts: Partial<Record<ThemeId, string>>;
+  customDomain: string;
 };
 
 interface SettingsPageProps {
@@ -150,6 +152,10 @@ export function SettingsPage({
   const [pluginValues, setPluginValues] = useState<ThemeSettings>({});
   const [pluginYaml, setPluginYaml] = useState("");
   const [pluginConfigBusy, setPluginConfigBusy] = useState(false);
+  const [draftDomain, setDraftDomain] = useState(github?.customDomain ?? "");
+  const [domainBaseline, setDomainBaseline] = useState(github?.customDomain ?? "");
+  const [domainError, setDomainError] = useState("");
+  const [domainHelpOpen, setDomainHelpOpen] = useState(false);
   const previewTimer = useRef<number | undefined>(undefined);
   const themeDraftsRef = useRef(themeDrafts);
   themeDraftsRef.current = themeDrafts;
@@ -162,15 +168,17 @@ export function SettingsPage({
       rawYaml: draftYaml,
       themeDrafts: { ...themeDrafts, [draftConfig.theme]: draftTheme },
       themeYamlDrafts: { ...themeYamlDrafts, [draftConfig.theme]: draftThemeYaml },
+      customDomain: draftDomain,
     }),
-    [draftConfig, draftTheme, draftThemeYaml, draftYaml, themeDrafts, themeYamlDrafts],
+    [draftConfig, draftTheme, draftThemeYaml, draftYaml, themeDrafts, themeYamlDrafts, draftDomain],
   );
 
   const dirty =
     JSON.stringify(draftConfig) !== JSON.stringify(config) ||
     JSON.stringify(draftTheme) !== JSON.stringify(themeSettings) ||
     draftThemeYaml !== themeYaml ||
-    draftYaml !== rawYaml;
+    draftYaml !== rawYaml ||
+    draftDomain !== domainBaseline;
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -189,6 +197,32 @@ export function SettingsPage({
       cancelled = true;
     };
   }, [github, dirty]);
+
+  useEffect(() => {
+    const local = github?.customDomain ?? "";
+    setDraftDomain(local);
+    setDomainBaseline(local);
+    setDomainError("");
+    // Prefetch remote only when never configured (undefined).
+    // Explicit clear ("") is a saved target state — do not overwrite with Pages cname.
+    if (!github?.owner?.trim() || !github?.repo?.trim() || github.customDomain !== undefined) {
+      return;
+    }
+    let cancelled = false;
+    void platform
+      .pagesDomain(github.owner, github.repo)
+      .then((result) => {
+        if (cancelled) return;
+        const remote = result.customDomain?.trim() ?? "";
+        if (!remote) return;
+        setDraftDomain(remote);
+        setDomainBaseline(remote);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [github?.owner, github?.repo, github?.customDomain]);
 
   const schedulePreview = (next: SettingsDraft) => {
     if (previewTimer.current) window.clearTimeout(previewTimer.current);
@@ -247,6 +281,7 @@ export function SettingsPage({
           [previous]: draftThemeYaml,
           [theme]: loaded.yaml,
         },
+        customDomain: draftDomain,
       });
     })();
   };
@@ -259,14 +294,22 @@ export function SettingsPage({
   };
 
   const save = async () => {
+    const parsed = parseCustomDomain(draftDomain);
+    if (!parsed.ok) {
+      setDomainError(parsed.error);
+      return;
+    }
+    setDomainError("");
     try {
-      const saved = await onSave(draft);
+      const saved = await onSave({ ...draft, customDomain: parsed.hostname });
       setDraftConfig(saved.config);
       setDraftTheme(saved.themeSettings);
       setDraftThemeYaml(saved.themeYaml);
       setDraftYaml(saved.rawYaml);
       setThemeDrafts(saved.themeDrafts);
       setThemeYamlDrafts(saved.themeYamlDrafts);
+      setDraftDomain(saved.customDomain);
+      setDomainBaseline(saved.customDomain);
     } catch {
       // parent shows toast
     }
@@ -416,8 +459,11 @@ export function SettingsPage({
 
           {tab === "site" ? (
             <div className="settings-pane-scroll">
-              <p className="hint">改完后点保存，站点信息和主题会一起写入，右侧才会重新生成。</p>
-              {github ? (
+              <p className="hint">
+                改完后点保存，站点信息和主题会一起写入，右侧才会重新生成。自定义域名会在下一次
+                Hexo 发布时写入 GitHub Pages。
+              </p>
+              {github?.owner?.trim() && github?.repo?.trim() ? (
                 <section className="studio-set-group settings-repo">
                   <h3>绑定仓库</h3>
                   <p className="settings-repo-name">
@@ -446,6 +492,40 @@ export function SettingsPage({
                   </div>
                 </section>
               ) : null}
+              <section className="studio-set-group settings-domain" data-testid="settings-domain">
+                <label className="block" htmlFor="cfg-custom-domain">
+                  自定义域名
+                </label>
+                <div className="settings-domain-row">
+                  <input
+                    id="cfg-custom-domain"
+                    data-testid="cfg-custom-domain"
+                    value={draftDomain}
+                    placeholder="blog.example.com"
+                    spellCheck={false}
+                    aria-invalid={Boolean(domainError)}
+                    onChange={(event) => {
+                      setDraftDomain(event.target.value);
+                      if (domainError) setDomainError("");
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="ghost"
+                    data-testid="cfg-domain-help"
+                    onClick={() => setDomainHelpOpen(true)}
+                  >
+                    如何配置
+                  </button>
+                </div>
+                {domainError ? (
+                  <p className="settings-domain-error" data-testid="cfg-domain-error">
+                    {domainError}
+                  </p>
+                ) : (
+                  <p className="hint">只填主机名。保存后再发布一次。留空则使用 github.io。</p>
+                )}
+              </section>
               <div className="grid">
                 <Field testId="cfg-title" label="标题" value={draftConfig.title} onChange={(value) => setSite("title", value)} />
                 <Field testId="cfg-subtitle" label="副标题" value={draftConfig.subtitle} onChange={(value) => setSite("subtitle", value)} />
@@ -794,6 +874,82 @@ export function SettingsPage({
           onResyncRepo?.();
         }}
       />
+      <DomainHelpDialog
+        open={domainHelpOpen}
+        pagesHost={
+          github?.owner?.trim() ? `${github.owner.trim().toLowerCase()}.github.io` : "USERNAME.github.io"
+        }
+        onClose={() => setDomainHelpOpen(false)}
+      />
+    </div>
+  );
+}
+
+function DomainHelpDialog({
+  open,
+  pagesHost,
+  onClose,
+}: {
+  open: boolean;
+  pagesHost: string;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="modal domain-help-modal"
+        data-testid="dialog-domain-help"
+        role="dialog"
+        aria-labelledby="domain-help-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="domain-help-title">如何配置自定义域名</h2>
+        <p className="hint">在域名服务商添加解析，指向 GitHub Pages。保存本页后再发布一次才会生效。</p>
+        <ol className="domain-help-steps">
+          <li>
+            填写主机名，例如 <code>blog.example.com</code>，不要加 <code>http://</code>。
+          </li>
+          <li>
+            在域名服务商添加记录（当前仓库应指向 <code>{pagesHost}</code>）：
+            <div className="domain-help-split">
+              <div className="domain-help-panel">
+                <strong>子域名</strong>
+                如 blog.example.com
+                <div className="domain-help-box">
+                  类型 CNAME
+                  <br />
+                  主机记录 blog
+                  <br />
+                  值 {pagesHost}
+                </div>
+              </div>
+              <div className="domain-help-panel">
+                <strong>根域名</strong>
+                如 example.com
+                <div className="domain-help-box">
+                  类型 A · 主机 @
+                  <br />
+                  185.199.108.153
+                  <br />
+                  185.199.109.153
+                  <br />
+                  185.199.110.153
+                  <br />
+                  185.199.111.153
+                </div>
+              </div>
+            </div>
+          </li>
+          <li>点设置页「保存」，然后执行一次「Hexo 发布」。</li>
+          <li>等 DNS 生效（几分钟到 48 小时）。GitHub 验证通过后会自动启用 HTTPS。</li>
+        </ol>
+        <div className="modal-actions">
+          <button type="button" className="primary" data-testid="domain-help-close" onClick={onClose}>
+            知道了
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -10,8 +10,7 @@ import {
   parseFrontMatter,
   parseSiteConfig,
   parseThemeSettings,
-  pagesRoot,
-  pagesUrl,
+  publishUrlAndRoot,
   pluginConfigPath,
   serializeFrontMatter,
   serializeThemeSettings,
@@ -499,9 +498,21 @@ export function App() {
     const safe = parseSiteConfig(draft.config);
     const yaml = applySiteConfigToYaml(safe, draft.rawYaml);
     const themes = { ...draft.themeDrafts, [safe.theme]: draft.themeSettings };
+    const customDomain = draft.customDomain.trim();
+    const nextGithub: GithubBinding | undefined = github?.owner?.trim() && github?.repo?.trim()
+      ? { ...github, customDomain }
+      : customDomain || github
+        ? {
+            owner: github?.owner ?? "",
+            repo: github?.repo ?? "",
+            defaultBranch: github?.defaultBranch ?? "main",
+            pagesUrl: github?.pagesUrl,
+            customDomain,
+          }
+        : undefined;
     setSettingsSaving(true);
     try {
-      await saveConfig(safe, github);
+      await saveConfig(safe, nextGithub);
       await writeFile("_config.yml", yaml);
       for (const [id, values] of Object.entries(themes)) {
         if (!values || !isThemeId(id)) continue;
@@ -518,6 +529,7 @@ export function App() {
       setRawYaml(yaml);
       setThemeSettings(draft.themeSettings);
       setThemeYaml(draft.themeYaml);
+      setGithub(nextGithub);
       const saved: SettingsDraft = {
         config: safe,
         rawYaml: yaml,
@@ -525,6 +537,7 @@ export function App() {
         themeYaml: draft.themeYaml,
         themeDrafts: themes,
         themeYamlDrafts: draft.themeYamlDrafts,
+        customDomain,
       };
       settingsDraftRef.current = saved;
       settingsDirtyRef.current = false;
@@ -594,10 +607,11 @@ export function App() {
       return;
     }
     const { owner, repo } = target;
+    const { url: siteUrl, root: siteRoot } = publishUrlAndRoot(owner, repo, github?.customDomain);
     const publishConfig = parseSiteConfig({
       ...config,
-      url: pagesUrl(owner, repo).replace(/\/$/, ""),
-      root: pagesRoot(owner, repo),
+      url: siteUrl,
+      root: siteRoot,
     });
     previewReloadRef.current = () => void runPublishPreview();
     const request = ++previewRequestRef.current;
@@ -684,7 +698,7 @@ export function App() {
       if (!still()) return;
       const result = await applyRepoSnapshot(snapshot, owner, opts.repo, (progress) => {
         setProgress(progress.label, progress.percent);
-      });
+      }, github);
       if (!still()) return;
       await saveConfig(result.config, result.binding);
       if (!still()) return;
@@ -754,6 +768,8 @@ export function App() {
         config,
         owner: target.owner,
         repo: target.repo,
+        // string (incl. "") = settings target state; omit when never configured → preserve remote
+        ...(typeof github?.customDomain === "string" ? { customDomain: github.customDomain } : {}),
       });
       const binding = bindingAfterPublish(github, result);
       setGithub(binding);
@@ -1039,6 +1055,7 @@ export function App() {
           theme={config.theme}
           boundOwner={github?.owner}
           boundRepo={github?.repo}
+          customDomain={github?.customDomain}
           busy={publishBusy}
           previewing={previewing}
           online={online}

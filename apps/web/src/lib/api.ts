@@ -206,9 +206,14 @@ export const api = {
     owner?: string;
     repo: string;
     createRepo?: boolean;
+    customDomain?: string | null;
   }) =>
     request<{ ok: boolean; url: string; owner: string; repo: string }>(`/sites/${siteId}/publish`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  pagesDomain: (owner: string, repo: string) =>
+    request<{ customDomain: string | null }>(
+      `/sites/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pages-domain`,
+    ),
 };

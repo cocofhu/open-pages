@@ -232,6 +232,8 @@ export interface GithubBinding {
   repo: string;
   defaultBranch: string;
   pagesUrl?: string;
+  /** Custom domain hostname (no scheme/path). Empty/undefined means no custom domain. */
+  customDomain?: string;
 }
 
 export interface SiteSnapshot {
@@ -689,4 +691,66 @@ export function pagesUrl(owner: string, repo: string): string {
 export function pagesRoot(owner: string, repo: string): string {
   if (repo.toLowerCase() === `${owner.toLowerCase()}.github.io`) return "/";
   return `/${repo}/`;
+}
+
+/** Strip scheme/path/port and lowercase a user-entered hostname candidate. */
+export function normalizeCustomDomainInput(input: string): string {
+  let value = input.trim().toLowerCase();
+  value = value.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  value = value.replace(/\/.*$/, "");
+  value = value.replace(/:\d+$/, "");
+  value = value.replace(/\.$/, "");
+  return value.trim();
+}
+
+const CUSTOM_DOMAIN_HOST_RE =
+  /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+
+/** Validate a custom domain hostname (no scheme/path). Empty string is valid (clear). */
+export function parseCustomDomain(input: string): { ok: true; hostname: string } | { ok: false; error: string } {
+  const raw = input.trim();
+  if (!raw) return { ok: true, hostname: "" };
+  if (/\s/.test(raw)) {
+    return { ok: false, error: "域名不能包含空格" };
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.includes("/") || raw.includes("?")) {
+    return { ok: false, error: "只填主机名，不要带 http(s):// 或路径" };
+  }
+  const hostname = normalizeCustomDomainInput(raw);
+  if (!hostname || !CUSTOM_DOMAIN_HOST_RE.test(hostname)) {
+    return { ok: false, error: "请输入合法主机名，例如 blog.example.com" };
+  }
+  return { ok: true, hostname };
+}
+
+/**
+ * Publish url/root: with a custom domain use https://host and root `/`;
+ * otherwise keep github.io pagesUrl/pagesRoot rules.
+ */
+export function publishUrlAndRoot(
+  owner: string,
+  repo: string,
+  customDomain?: string | null,
+): { url: string; root: string; hostname: string | null } {
+  const parsed = customDomain?.trim() ? parseCustomDomain(customDomain) : { ok: true as const, hostname: "" };
+  const hostname = parsed.ok && parsed.hostname ? parsed.hostname : null;
+  if (hostname) {
+    return { url: `https://${hostname}`, root: "/", hostname };
+  }
+  return {
+    url: pagesUrl(owner, repo).replace(/\/$/, ""),
+    root: pagesRoot(owner, repo),
+    hostname: null,
+  };
+}
+
+/** Inject or omit root CNAME for a gh-pages replace commit. */
+export function withCnameFile(
+  files: Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>,
+  hostname: string | null | undefined,
+): Array<{ path: string; content: string; encoding?: "utf8" | "base64" }> {
+  const rest = files.filter((file) => file.path !== "CNAME");
+  const host = hostname?.trim();
+  if (!host) return rest;
+  return [...rest, { path: "CNAME", content: `${host}\n` }];
 }
