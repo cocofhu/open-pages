@@ -25,7 +25,6 @@ import {
   ensureSite,
   generatePublishedSite,
   previewSite,
-  previewUrl,
   resetSite,
   syncSite,
 } from "../lib/workspace.js";
@@ -148,15 +147,29 @@ siteRoutes.post("/:siteId/sync", async (c) => {
 siteRoutes.post("/:siteId/preview", async (c) => {
   const session = c.get("session");
   assertGenerateBudget(c, session, "preview");
-  const body = (await c.req.json()) as { files: SiteFile[]; config?: unknown };
+  const body = (await c.req.json()) as {
+    files: SiteFile[];
+    config?: unknown;
+    sourcePath?: unknown;
+  };
   const siteId = siteIdParam(c);
+  const sourcePath =
+    typeof body.sourcePath === "string" && body.sourcePath.trim()
+      ? body.sourcePath.trim()
+      : undefined;
   const result = await generateGate.run(() =>
-    previewSite(ownerKey(session), siteId, body.files ?? [], optionalConfig(body.config)),
+    previewSite(
+      ownerKey(session),
+      siteId,
+      body.files ?? [],
+      optionalConfig(body.config),
+      sourcePath,
+    ),
   );
   return c.json({
     ok: true,
     elapsedMs: result.elapsedMs,
-    url: previewUrl(ownerKey(session), siteId),
+    url: result.url,
   });
 });
 

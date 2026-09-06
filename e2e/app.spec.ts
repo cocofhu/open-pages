@@ -31,6 +31,20 @@ async function openHexoPreview(page: Page) {
   return { src, failed, popups };
 }
 
+/** Toolbar preview must land on a document permalink, not only /preview/<key>/. */
+function expectArticlePreviewSrc(src: string) {
+  const pathname = new URL(src, "http://localhost").pathname;
+  const match = pathname.match(/^\/preview\/[^/]+\/(.+)$/);
+  expect(match?.[1], `toolbar preview stayed on site root: ${src}`).toBeTruthy();
+  expect(match?.[1], `toolbar preview stayed on site root: ${src}`).not.toMatch(/^\/?$/);
+}
+
+/** Publish preview must land on the preview site root (home). */
+function expectHomePreviewSrc(src: string) {
+  const pathname = new URL(src, "http://localhost").pathname.replace(/\/+$/, "") + "/";
+  expect(pathname, `publish preview left the site root: ${src}`).toMatch(/^\/preview\/[^/]+\/$/);
+}
+
 /**
  * The theme stylesheet is served from the preview origin, so it only loads when
  * the frame resolves its capability URL. Reading cssRules also proves the frame
@@ -418,8 +432,13 @@ graph LR
     await boot(page);
     const { src, failed, popups } = await openHexoPreview(page);
 
+    // g3.1 / g2.1: toolbar preview lands on the current document permalink.
+    expectArticlePreviewSrc(src);
+    await expect(page.getByTestId("preview-overlay")).toContainText("文章预览");
+
     const preview = page.frameLocator('[data-testid="preview-frame"]');
-    await expect(preview.locator("body")).toContainText(/Hello Open Pages|Open Pages/);
+    await expect(preview.locator("body")).toContainText("Hello Open Pages");
+    await expect(preview.locator("body")).toContainText(/Typora|所见即所得/);
     await assertNoBrokenPreviewLinks(page, previewScopeFrom(src));
     expect(failed, `preview assets 404: ${failed.join("\n")}`).toEqual([]);
 
@@ -429,11 +448,134 @@ graph LR
     expect(headerHeight, "landscape CSS did not apply; header is still unstyled").toBeGreaterThan(40);
 
     expect(popups, `preview escaped into a browser tab: ${popups.join("\n")}`).toEqual([]);
-    await expect(page.getByTestId("toast")).toContainText(/Hexo 预览/);
+    await expect(page.getByTestId("toast")).toContainText(/文章预览/);
 
     await page.getByTestId("preview-close").click();
     await expect(page.getByTestId("preview-overlay")).toHaveCount(0);
     await expect(page.getByTestId("title-input")).toBeVisible();
+  });
+
+  test("toolbar preview opens the About page when that document is active", async ({ page }) => {
+    test.setTimeout(240_000);
+    await boot(page);
+    await page.getByTestId("btn-files").click();
+    await page.getByTestId("file-about").click();
+    await expect(page.getByTestId("title-input")).toHaveValue("About");
+
+    const { src, popups } = await openHexoPreview(page);
+    expectArticlePreviewSrc(src);
+    expect(src).toMatch(/\/about\/?(?:\?|$)/);
+    await expect(page.getByTestId("preview-overlay")).toContainText("文章预览");
+
+    const preview = page.frameLocator('[data-testid="preview-frame"]');
+    await expect(preview.locator("body")).toContainText(/About|Open Pages/);
+    expect(popups).toEqual([]);
+  });
+
+  test("toolbar preview opens a draft document", async ({ page }) => {
+    test.setTimeout(240_000);
+    await boot(page);
+    await page.getByTestId("btn-files-top").click();
+    await page.getByTestId("new-post").click();
+    await page.getByTestId("kind-draft").click();
+    await page.getByTestId("new-doc-title").fill("Draft Preview Body");
+    await page.getByTestId("new-doc-submit").click();
+    await expect(page.getByTestId("title-input")).toHaveValue("Draft Preview Body");
+
+    const { src, popups } = await openHexoPreview(page);
+    expectArticlePreviewSrc(src);
+    const preview = page.frameLocator('[data-testid="preview-frame"]');
+    await expect(preview.locator("body")).toContainText("Draft Preview Body");
+    expect(popups).toEqual([]);
+  });
+
+  test("publish preview opens the site home even when an article is open", async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.route("**/auth/me", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          guestId: "e2e-guest",
+          login: "e2e-user",
+          name: "E2E User",
+          avatarUrl: null,
+          githubEnabled: true,
+        }),
+      });
+    });
+    await page.route("**/sites/github/repos/**/publish-check**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          eligible: true,
+          reason: "bound",
+          message: "可以发布",
+        }),
+      });
+    });
+
+    await boot(page);
+    await expect(page.getByTestId("title-input")).toHaveValue("Hello Open Pages");
+
+    // Publish is bound-repo-only after main; seed the local GithubBinding so
+    // the preview button can enable without the removed create-repo UI.
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open("open-pages", 1);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("meta", "readwrite");
+        const store = tx.objectStore("meta");
+        const getReq = store.get("default");
+        getReq.onsuccess = () => {
+          const row = (getReq.result as Record<string, unknown> | undefined) ?? {
+            key: "default",
+            config: {},
+            updatedAt: Date.now(),
+          };
+          store.put({
+            ...row,
+            github: {
+              owner: "e2e-user",
+              repo: "e2e-user.github.io",
+              defaultBranch: "main",
+            },
+            updatedAt: Date.now(),
+          });
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    });
+    await page.reload();
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("title-input")).toHaveValue("Hello Open Pages");
+
+    await page.getByTestId("btn-publish").click();
+    await expect(page.getByTestId("publish-page")).toBeVisible();
+    await expect(page.getByTestId("publish-bound-repo")).toContainText("e2e-user/e2e-user.github.io");
+    await expect(page.getByTestId("publish-repo-check")).toContainText("可以发布", { timeout: 10_000 });
+
+    const popups: string[] = [];
+    page.on("popup", (popup) => popups.push(popup.url()));
+    await page.getByTestId("publish-preview").click();
+    await expect(page.getByTestId("preview-overlay")).toBeVisible();
+    await expect(page.getByTestId("preview-overlay")).toContainText("主页预览");
+    const frame = page.getByTestId("preview-frame");
+    await expect(frame).toBeVisible({ timeout: 120_000 });
+    const src = (await frame.getAttribute("src")) ?? "";
+    expectHomePreviewSrc(src);
+
+    const preview = page.frameLocator('[data-testid="preview-frame"]');
+    await expect(preview.locator("body")).toContainText(/Open Pages|Hello Open Pages/);
+    // Home lists posts; it must not be the single-post article layout as the only landing.
+    // Root URL is the hard contract; also ensure we did not follow the welcome permalink.
+    expect(src).not.toMatch(/hello-open-pages/);
+    expect(popups, `publish preview escaped into a browser tab: ${popups.join("\n")}`).toEqual([]);
   });
 
   test("publish goes straight to GitHub", async ({ page }) => {

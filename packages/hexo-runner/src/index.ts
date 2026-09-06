@@ -174,6 +174,8 @@ export interface ScaffoldOptions {
 export interface GenerateResult {
   publicDir: string;
   elapsedMs: number;
+  /** App source paths (`source/_posts/...`) → public permalink paths from Hexo locals. */
+  sourcePaths: Record<string, string>;
 }
 
 export interface GenerateOptions {
@@ -181,6 +183,27 @@ export interface GenerateOptions {
   themeSource?: string;
   plugins?: Array<{ id: string; path: string }>;
   disabledPluginNames?: string[];
+  /** When true, hexo generate includes drafts (toolbar draft preview only). */
+  draft?: boolean;
+}
+
+const SOURCE_MAP_FILE = ".open-pages-source-map.json";
+
+/** Resolve a document's public permalink from a generate source map. */
+export function resolveSourcePermalink(
+  sourcePaths: Record<string, string>,
+  sourcePath: string,
+): string | undefined {
+  const normalized = sourcePath.replaceAll("\\", "/").replace(/^\/+/, "");
+  if (!normalized) return undefined;
+  const withSource = normalized.startsWith("source/") ? normalized : `source/${normalized}`;
+  return sourcePaths[withSource] ?? sourcePaths[normalized];
+}
+
+export function joinPreviewUrl(baseUrl: string, pagePath: string): string {
+  const root = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  const rel = pagePath.replace(/^\/+/, "");
+  return `${root}${rel}`;
 }
 
 const inflight = new Map<string, Promise<GenerateResult>>();
@@ -303,8 +326,9 @@ async function runGenerate(
 
   try {
     let firstError: unknown;
+    const workerOpts = { draft: Boolean(options.draft) };
     try {
-      await runHexoInWorker(siteDir, buildRel, options.plugins, options.themeSource);
+      await runHexoInWorker(siteDir, buildRel, options.plugins, options.themeSource, workerOpts);
     } catch (error) {
       firstError = error;
     }
@@ -312,9 +336,10 @@ async function runGenerate(
     // A few third-party themes initialize generated state in Hexo's database on
     // their first pass. Retry once when that pass errors or produces no homepage.
     if (firstError || !(await hasGeneratedIndex(buildDir))) {
-      await runHexoInWorker(siteDir, buildRel, options.plugins, options.themeSource);
+      await runHexoInWorker(siteDir, buildRel, options.plugins, options.themeSource, workerOpts);
     }
 
+    const sourcePaths = await readSourceMap(siteDir);
     await assertGeneratedIndex(buildDir);
     await polishPublicDir(buildDir, options.rebaseRoot);
     await applyForcedColorScheme(siteDir, buildDir);
@@ -324,6 +349,7 @@ async function runGenerate(
     return {
       publicDir,
       elapsedMs: Date.now() - started,
+      sourcePaths,
     };
   } catch (error) {
     await rm(buildDir, { recursive: true, force: true });
@@ -769,11 +795,32 @@ function workerEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+async function readSourceMap(siteDir: string): Promise<Record<string, string>> {
+  const mapPath = join(siteDir, SOURCE_MAP_FILE);
+  try {
+    const raw = await readFile(mapPath, "utf8");
+    await rm(mapPath, { force: true });
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof key === "string" && typeof value === "string" && key && value) {
+        out[key.replaceAll("\\", "/")] = value.replaceAll("\\", "/");
+      }
+    }
+    return out;
+  } catch {
+    await rm(mapPath, { force: true }).catch(() => undefined);
+    return {};
+  }
+}
+
 async function runHexoInWorker(
   siteDir: string,
   publicRel: string,
   plugins: Array<{ id: string; path: string }> = [],
   themeSource?: string,
+  options: { draft?: boolean } = {},
 ): Promise<void> {
   await new Promise<void>((resolvePromise, reject) => {
     const args = [
@@ -782,6 +829,7 @@ async function runHexoInWorker(
       siteDir,
       publicRel,
       JSON.stringify(plugins),
+      JSON.stringify({ draft: Boolean(options.draft) }),
     ];
     const child = spawn(
       process.execPath,

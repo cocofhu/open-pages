@@ -175,10 +175,10 @@ export const api = {
     }),
   removeAddon: (id: string) =>
     request<{ ok: boolean }>(`/addons/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  preview: (siteId: string, files: SiteFile[], config: SiteConfig) =>
+  preview: (siteId: string, files: SiteFile[], config: SiteConfig, sourcePath?: string) =>
     request<{ ok: boolean; url: string; elapsedMs: number }>(`/sites/${siteId}/preview`, {
       method: "POST",
-      body: JSON.stringify({ files, config }),
+      body: JSON.stringify({ files, config, ...(sourcePath ? { sourcePath } : {}) }),
     }),
   sync: (siteId: string, files: SiteFile[], config: SiteConfig) =>
     request<{ ok: boolean }>(`/sites/${siteId}/sync`, {

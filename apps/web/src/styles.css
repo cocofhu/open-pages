@@ -3246,6 +3246,169 @@ li + li > .outline-item.level-1 {
   color: var(--accent-ink);
 }
 
+.onboard-mode button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* RepoOnboarding-only: combo input, full-width CTA, in-card progress (plan g2/g3).
+   Do not change .publish-foot global control sizes. */
+.onboard-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.onboard-repo-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.onboard-repo-combo {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.onboard-repo-owner {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg) 70%, #fff);
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 14px;
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.onboard-repo-combo input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  padding: 12px;
+  font: 600 15px/1.3 var(--ui);
+  background: transparent;
+  color: var(--ink);
+}
+
+.onboard-repo-combo input:disabled {
+  opacity: 0.7;
+}
+
+.onboard-suggest {
+  align-self: flex-start;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font: 600 12px/1.2 var(--ui);
+  cursor: pointer;
+}
+
+.onboard-suggest:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ink) 28%, var(--line));
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+}
+
+.onboard-suggest:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.onboard-list-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 28%, var(--paper));
+}
+
+.onboard-list-loading .hint {
+  margin: 0;
+}
+
+.onboard-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.onboard-sync {
+  width: 100%;
+  min-height: 48px;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 650;
+  gap: 8px;
+}
+
+.onboard-sync .ui-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.onboard-progress {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 28%, var(--paper));
+}
+
+.onboard-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 80%, #fff);
+}
+
+.onboard-progress-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.onboard-progress p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.onboard-cancel,
+.onboard-retry {
+  width: 100%;
+  min-height: 40px;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.onboard-foot button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboard-progress-bar i {
+    transition: none;
+  }
+}
+
 .boot-actions {
   display: flex;
   flex-wrap: wrap;

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import {
   DEFAULT_SITE_CONFIG,
+  fileKind,
   isSafeSiteId,
   isUserEditablePath,
   manifestAddonsFromCatalog,
@@ -25,7 +26,9 @@ import { assessRepoForPublish, commitFiles, createRepo, enablePages, readPagesCu
 import type { GenerationAddons } from "@open-pages/addons";
 import {
   generateSite,
+  joinPreviewUrl,
   listPublicFiles,
+  resolveSourcePermalink,
   scaffoldSite,
   updateSiteConfig,
   writeUserFiles,
@@ -78,6 +81,7 @@ export async function previewLocalSite(options: {
   previewOrigin: string;
   sitesRoot?: string;
   addons?: GenerationAddons;
+  sourcePath?: string;
 }): Promise<{ publicDir: string; elapsedMs: number; url: string; rebaseRoot: string }> {
   const rebaseRoot = `/preview/${options.siteId}/`;
   const config = parseSiteConfig({
@@ -87,11 +91,29 @@ export async function previewLocalSite(options: {
   });
   const siteDir = localSiteDir(options.siteId, options.sitesRoot);
   await prepareSite(siteDir, options.files, config, options.addons?.themeSource);
-  const result = await generateSite(siteDir, { rebaseRoot, ...options.addons });
+  const includeDrafts = Boolean(options.sourcePath && fileKind(options.sourcePath) === "draft");
+  const result = await generateSite(siteDir, {
+    rebaseRoot,
+    draft: includeDrafts,
+    ...options.addons,
+  });
+  const baseUrl = `${options.previewOrigin}${rebaseRoot}`;
+  if (!options.sourcePath) {
+    return {
+      publicDir: result.publicDir,
+      elapsedMs: result.elapsedMs,
+      url: baseUrl,
+      rebaseRoot,
+    };
+  }
+  const pagePath = resolveSourcePermalink(result.sourcePaths, options.sourcePath);
+  if (!pagePath) {
+    throw new Error(`找不到当前文档的预览页：${options.sourcePath}`);
+  }
   return {
     publicDir: result.publicDir,
     elapsedMs: result.elapsedMs,
-    url: `${options.previewOrigin}${rebaseRoot}`,
+    url: joinPreviewUrl(baseUrl, pagePath),
     rebaseRoot,
   };
 }
