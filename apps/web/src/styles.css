@@ -2233,6 +2233,8 @@ li + li > .outline-item.level-1 {
 
 .theme-pick-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   height: 100%;
 }
@@ -2249,23 +2251,49 @@ li + li > .outline-item.level-1 {
   gap: 4px;
   min-height: 92px;
   width: 100%;
-  height: 100%;
+  flex: 1;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
 .theme-card-actions {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
 
-.theme-card-actions .icon-btn,
-.theme-remove {
-  width: 26px;
-  height: 26px;
-  background: color-mix(in srgb, #fff 90%, transparent);
+.addon-action,
+.settings-theme-current .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.addon-action {
+  opacity: 1;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 55%, var(--paper));
+}
+
+.addon-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 6%, var(--paper));
+}
+
+.addon-action:disabled,
+.settings-theme-current .primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-theme-current .primary {
+  margin-top: 10px;
+  background: var(--ink);
+  color: var(--accent-ink);
 }
 
 .theme-pick-card i {
@@ -2413,6 +2441,14 @@ li + li > .outline-item.level-1 {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #fff;
+}
+
+.addon-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .addon-row-info {

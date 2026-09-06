@@ -490,7 +490,7 @@ export function SettingsPage({
             </div>
           ) : tab === "theme" ? (
             <div className="settings-pane-scroll">
-              <p className="hint">点选主题和改文案后记得保存。保存时右侧才会重新 generate。</p>
+              <p className="hint">点选主题和改文案后记得保存。已安装的主题可以点「更新」，会按原来的 GitHub / npm 来源再拉一版。</p>
               <AddonInstaller
                 kind="theme"
                 source={addonSource}
@@ -523,22 +523,23 @@ export function SettingsPage({
                         <div className="theme-card-actions">
                           <button
                             type="button"
-                            className="icon-btn"
-                            title="按原来源更新主题"
+                            className="ghost icon-label addon-action"
                             disabled={addonBusy}
                             data-testid={`theme-update-${item.id}`}
                             onClick={() => void submitUpdate(item.id)}
                           >
                             <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                            更新
                           </button>
                           <button
                             type="button"
-                            className="theme-remove icon-btn"
+                            className="ghost icon-label addon-action"
                             title={on ? "正在使用的主题不能卸载" : "卸载主题"}
                             disabled={on || addonBusy}
                             onClick={() => void mutateAddon(() => onRemoveAddon(item.id))}
                           >
                             <TrashIcon className="ui-icon" aria-hidden="true" />
+                            卸载
                           </button>
                         </div>
                       ) : null}
@@ -550,6 +551,18 @@ export function SettingsPage({
                 <p className="studio-settings-kicker">当前主题</p>
                 <h4>{meta.label}</h4>
                 <p className="hint">{meta.description}</p>
+                {!meta.builtin ? (
+                  <button
+                    type="button"
+                    className="primary icon-label"
+                    disabled={addonBusy}
+                    data-testid={`theme-update-current-${meta.id}`}
+                    onClick={() => void submitUpdate(meta.id)}
+                  >
+                    <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                    更新主题
+                  </button>
+                ) : null}
               </div>
               <ThemeSettingsForm
                 fields={meta.settings}
@@ -624,27 +637,27 @@ export function SettingsPage({
                       <i />
                     </button>
                     {!plugin.builtin ? (
-                      <>
+                      <div className="addon-row-actions">
                         <button
                           type="button"
-                          className="icon-btn"
-                          title="按原来源更新插件"
+                          className="ghost icon-label addon-action"
                           disabled={addonBusy}
                           data-testid={`plugin-update-${plugin.id}`}
                           onClick={() => void submitUpdate(plugin.id)}
                         >
                           <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                          更新
                         </button>
                         <button
                           type="button"
-                          className="icon-btn"
-                          title="卸载插件"
+                          className="ghost icon-label addon-action"
                           disabled={addonBusy}
                           onClick={() => void mutateAddon(() => onRemoveAddon(plugin.id))}
                         >
                           <TrashIcon className="ui-icon" aria-hidden="true" />
+                          卸载
                         </button>
-                      </>
+                      </div>
                     ) : null}
                   </article>
                 ))}
