@@ -1,6 +1,10 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/client" />
 
+interface ImportMetaEnv {
+  readonly OPEN_PAGES_DESKTOP?: string;
+}
+
 declare module "markdown-it-texmath" {
   import type MarkdownIt from "markdown-it";
   import type katex from "katex";

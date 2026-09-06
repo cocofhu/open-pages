@@ -1,56 +1,47 @@
 ; Installer hooks for the Windows build.
 ;
-; Open Pages runs its Hexo work in a Node sidecar spawned out of the install
-; directory. Killing the app window does not take that sidecar with it, and
-; Windows refuses to overwrite an executable that is still mapped into a live
-; process: NSIS then stops on "Error opening file for writing" and whoever
-; clicks "Abort" (or "Ignore") keeps running the old version. Clear the install
-; directory of live processes and stale runtime files before any file is copied.
+; Upgrade: close leftovers, drop stale runtime files and WebView caches, then
+; overwrite. Site drafts stay in %USERPROFILE%\.open-pages.
+; Uninstall: wipe the program, WebView profile, user data, and GitHub creds.
 
 !macro OpenPagesStopProcesses
   DetailPrint "Closing Open Pages and its background runtime..."
-
-  ; /T reaches the WebView2 and Node children while the app itself is alive.
   nsExec::Exec 'taskkill /F /T /IM "${MAINBINARYNAME}.exe"'
   Pop $0
-
-  ; A force-killed app orphans the sidecar, so the tree above may already be
-  ; gone. Match on the install path instead: that catches the orphan (and the
-  ; plain "node.exe" older versions shipped) without touching Node processes
-  ; the user started themselves. The length guard keeps a drive-root install
-  ; from matching every process on the machine.
-  ;
-  ; Skip uninstall.exe: Tauri's upgrade path launches the old uninstaller in
-  ; place (`_?=$INSTDIR`) instead of copying it to %TEMP%. Killing it here
-  ; makes ExecWait fail and the new installer shows "Unable to uninstall!".
   nsExec::Exec `powershell -NoProfile -NonInteractive -Command "$$dir = '$INSTDIR'; if ($$dir.Length -gt 3) { Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$dir, [System.StringComparison]::OrdinalIgnoreCase) -and $$_.Name -ne 'uninstall.exe' } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
   Pop $0
-
-  ; File handles outlive the process by a moment.
   Sleep 1000
+!macroend
+
+!macro OpenPagesWipeWebViewCaches
+  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Cache"
+  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Code Cache"
+  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Service Worker"
+  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\GPUCache"
+  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\DawnGraphiteCache"
+  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\DawnWebGPUCache"
+!macroend
+
+!macro OpenPagesWipeCredentials
+  nsExec::Exec `cmdkey /delete:open-pages`
+  Pop $0
+  nsExec::Exec `cmdkey /delete:open-pages/github-token`
+  Pop $0
+  nsExec::Exec `cmdkey /delete:open-pages/github-session`
+  Pop $0
+  nsExec::Exec `cmdkey /delete:open-pages:github-token`
+  Pop $0
+  nsExec::Exec `cmdkey /delete:open-pages:github-session`
+  Pop $0
+  nsExec::Exec `powershell -NoProfile -NonInteractive -Command "cmdkey /list | ForEach-Object { if ($$_ -match 'target=(\\S*open-pages\\S*)') { cmdkey /delete:$$Matches[1] } }"`
+  Pop $0
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro OpenPagesStopProcesses
-
-  ; The runtime bundle is a deployed node_modules tree. An uninstaller only
-  ; removes the files its own build knew about, so anything a later version
-  ; dropped would linger and get resolved instead of the new tree.
   RMDir /r "$INSTDIR\runtime-bundle"
-
-  ; The sidecar installs as a bare "node.exe". Deleting it first means the copy
-  ; below lands on a free path rather than on whatever the old install left.
   Delete "$INSTDIR\node.exe"
-
-  ; WebView2 caches what the app serves over http://tauri.localhost, so the new
-  ; build can still boot the previous UI. Releases up to 0.1.16 also registered
-  ; a PWA service worker there, which precached the whole app shell; it now
-  ; self-destroys on first launch, and dropping it here saves users that reload.
-  ; Only caches go - site drafts and the sign-in state live in the same profile.
-  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Cache"
-  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Code Cache"
-  RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Service Worker"
-
+  !insertmacro OpenPagesWipeWebViewCaches
   SetOverwrite on
 !macroend
 
@@ -59,38 +50,11 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  ; A normal uninstall (not /UPDATE) must drop user-installed themes and
-  ; plugins. They live under the profile, not $INSTDIR, so Tauri's file list
-  ; never sees them and they came back after a reinstall.
   ${If} $UpdateMode <> 1
-    RMDir /r "$PROFILE\.open-pages\desktop\.addon-store"
-    RMDir "$PROFILE\.open-pages\desktop"
-
-    ; Stale WebView2 caches keep serving the previous app shell. IndexedDB and
-    ; the site tree stay unless the user asked to delete app data.
-    RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Cache"
-    RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Code Cache"
-    RMDir /r "$LOCALAPPDATA\${BUNDLEID}\EBWebView\Default\Service Worker"
-
-    ${If} $DeleteAppDataCheckboxState = 1
-      ; Token is written to secrets.json AND Windows Credential Manager.
-      ; Tauri only wipes %LOCALAPPDATA%\com.openpages.desktop, so a reinstall
-      ; still read the keyring first and came back already signed in.
-      RMDir /r "$PROFILE\.open-pages"
-      nsExec::Exec `cmdkey /delete:open-pages`
-      Pop $0
-      nsExec::Exec `cmdkey /delete:open-pages/github-token`
-      Pop $0
-      nsExec::Exec `cmdkey /delete:open-pages/github-session`
-      Pop $0
-      nsExec::Exec `cmdkey /delete:open-pages:github-token`
-      Pop $0
-      nsExec::Exec `cmdkey /delete:open-pages:github-session`
-      Pop $0
-      nsExec::Exec `powershell -NoProfile -NonInteractive -Command "cmdkey /list | ForEach-Object { if ($$_ -match 'target=(\\S*open-pages\\S*)') { cmdkey /delete:$$Matches[1] } }"`
-      Pop $0
-    ${EndIf}
-
+    RMDir /r "$PROFILE\.open-pages"
+    RMDir /r "$LOCALAPPDATA\${BUNDLEID}"
+    RMDir /r "$APPDATA\${BUNDLEID}"
+    !insertmacro OpenPagesWipeCredentials
     RMDir /r "$INSTDIR"
   ${EndIf}
 !macroend

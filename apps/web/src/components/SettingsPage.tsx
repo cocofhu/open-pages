@@ -291,6 +291,7 @@ export function SettingsPage({
       description: "用户安装的主题",
       settings: [],
       tint: undefined,
+      builtin: false,
     };
   const tint = meta.tint ?? THEME_TINT[draftConfig.theme] ?? tintFromId(draftConfig.theme);
   const zones = useMemo(() => timezoneOptions(), []);

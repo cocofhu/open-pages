@@ -13,10 +13,12 @@ import { VitePWA } from "vite-plugin-pwa";
 const desktopShell = process.env.OPEN_PAGES_DESKTOP === "1";
 
 export default defineConfig({
+  envPrefix: ["VITE_", "OPEN_PAGES_"],
   plugins: [
     react(),
     VitePWA({
-      selfDestroying: desktopShell,
+      disable: desktopShell,
+      injectRegister: desktopShell ? null : "auto",
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {
