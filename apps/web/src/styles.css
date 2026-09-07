@@ -2652,6 +2652,11 @@ li + li > .outline-item.level-1 {
   background: #fff;
 }
 
+.addon-row.updating {
+  border-color: color-mix(in srgb, var(--accent, #c2410c) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent, #c2410c) 6%, #fff);
+}
+
 .addon-row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2667,10 +2672,58 @@ li + li > .outline-item.level-1 {
   text-align: left;
 }
 
-.addon-row-info span,
+.addon-row-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.addon-row-name strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.addon-version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--accent, #c2410c) 85%, var(--ink));
+  background: color-mix(in srgb, var(--accent, #c2410c) 12%, #fff);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.addon-version.muted {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ink) 6%, #fff);
+}
+
+.addon-row-info > span,
 .addon-row-info small {
   color: var(--muted);
   font-size: 11px;
+}
+
+.addon-row-info .addon-version {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--accent, #c2410c) 85%, var(--ink));
+}
+
+.addon-row-info .addon-version.muted {
+  color: var(--muted);
+}
+
+.addon-row-progress,
+.addon-row-error {
+  grid-column: 1 / -1;
+}
+
+.addon-row .error-text {
+  color: var(--danger);
+  margin: 0;
 }
 
 .plugin-config {

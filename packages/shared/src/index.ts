@@ -144,7 +144,7 @@ export type AddonKind = "theme" | "plugin";
 export type AddonSource =
   | { type: "builtin"; packageName: string; version: string }
   | { type: "npm"; packageName: string; version: string }
-  | { type: "github"; packageName: string; repo: string; ref?: string };
+  | { type: "github"; packageName: string; repo: string; ref?: string; version?: string };
 
 export interface AddonManifest {
   id: string;
@@ -153,11 +153,32 @@ export interface AddonManifest {
   label: string;
   description: string;
   source: AddonSource;
+  /** Installed package.json version for display; missing means unknown. */
+  installedVersion?: string;
   settings: ThemeSettingField[];
   builtin: boolean;
   core?: boolean;
   enabled?: boolean;
   tint?: { ink: string; paper: string };
+}
+
+/** Resolved installed version from manifest fields (empty when unknown). */
+export function addonInstalledVersion(addon: AddonManifest): string {
+  const direct = addon.installedVersion?.trim();
+  if (direct) return direct;
+  if (addon.source.type === "github") {
+    return addon.source.version?.trim() ?? "";
+  }
+  const version = addon.source.version?.trim() ?? "";
+  if (!version || version === "latest") return "";
+  return version;
+}
+
+/** UI label: `v1.2.3` or `未知版本`. */
+export function addonVersionLabel(addon: AddonManifest): string {
+  const version = addonInstalledVersion(addon);
+  if (!version) return "未知版本";
+  return version.startsWith("v") ? version : `v${version}`;
 }
 
 export const BUILTIN_ADDONS: AddonManifest[] = [

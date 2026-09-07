@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/site-manifest.test.ts src/theme-settings.test.ts src/custom-domain.test.ts"
+    "test": "node --import tsx --test src/site-manifest.test.ts src/theme-settings.test.ts src/custom-domain.test.ts src/addon-version.test.ts"
   },
   "dependencies": {},
   "devDependencies": {
