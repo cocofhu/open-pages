@@ -469,7 +469,7 @@ export function SettingsPage({
                   <p className="settings-repo-name">
                     @{github.owner}/{github.repo}
                   </p>
-                  <p className="hint">
+                  <p className="hint" data-testid="settings-repo-status">
                     {dirty || repoDirty
                       ? "重新同步会用仓库覆盖本地文章和配置，还没发布的改动会丢掉。"
                       : "已是最新版。"}

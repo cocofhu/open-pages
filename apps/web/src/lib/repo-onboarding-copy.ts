@@ -17,3 +17,13 @@ export function switchRepoConfirmCopy(opts: {
     confirmLabel: "覆盖并切换",
   };
 }
+
+/** Logout wipes local binding + site data; remote GitHub repos stay. */
+export function logoutWipeConfirmCopy(): { title: string; message: string; confirmLabel: string } {
+  return {
+    title: "退出并清空本地？",
+    message:
+      "将清除仓库绑定，并删除本机的文章、页面和配置。不会删除你的 GitHub 仓库或 Pages 站点。",
+    confirmLabel: "退出并清空",
+  };
+}
