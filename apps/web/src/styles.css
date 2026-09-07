@@ -828,9 +828,13 @@ li + li > .outline-item.level-1 {
   overflow: visible;
 }
 
+/* Mermaid 11 flowchart labels live in SVG foreignObject HTML and can escape
+   the preview stacking context. Keep chrome (language / Copy / Edit) above the
+   isolated diagram without rivaling global overlays (drawer 20, modal 30,
+   toast 40). Crepe's .language-picker already uses z-index: 999. */
 .crepe-host .milkdown .milkdown-code-block .tools {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   min-height: 28px;
   margin: 0 0 6px;
 }
@@ -843,6 +847,12 @@ li + li > .outline-item.level-1 {
 .crepe-host .milkdown .milkdown-code-block .language-picker {
   top: 36px;
   left: 16px;
+}
+
+.crepe-host .milkdown .milkdown-code-block .preview-panel {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .crepe-host .milkdown .milkdown-code-block .cm-editor {
@@ -1073,6 +1083,11 @@ li + li > .outline-item.level-1 {
   margin: 0 0 1.25em;
   overflow: auto;
   text-align: center;
+  /* Contain Mermaid foreignObject HTML so node labels cannot paint over the
+     code-block chrome or adjacent preview content (WYSIWYG + source pane). */
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .mermaid-diagram svg {
