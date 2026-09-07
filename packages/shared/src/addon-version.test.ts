@@ -4,7 +4,7 @@ import {
   addonInstalledVersion,
   addonVersionLabel,
   type AddonManifest,
-} from "./index.ts";
+} from "./index.js";
 
 function plugin(partial: Partial<AddonManifest> & Pick<AddonManifest, "source">): AddonManifest {
   return {
