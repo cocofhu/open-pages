@@ -317,10 +317,24 @@ graph LR
     await expect(help).not.toContainText("仓库名");
     await page.getByTestId("domain-help-close").click();
     await expect(help).toHaveCount(0);
-    await page.getByTestId("cfg-custom-domain").fill("https://bad.example.com");
+
+    // Blur with invalid hostname must show inline format error (g2.1 / g2.3).
+    const domainInput = page.getByTestId("cfg-custom-domain");
+    await domainInput.fill("https://bad.example.com");
+    await domainInput.blur();
+    await expect(page.getByTestId("cfg-domain-error")).toBeVisible();
+    await expect(page.getByTestId("cfg-domain-error")).toContainText("主机名");
+    await expect(domainInput).toHaveAttribute("aria-invalid", "true");
+
+    // Save still blocked while invalid (g2.1).
     await page.getByTestId("settings-save").click();
     await expect(page.getByTestId("cfg-domain-error")).toBeVisible();
-    await page.getByTestId("cfg-custom-domain").fill("blog.example.com");
+
+    // Fixing while error shown re-validates and clears error (g2.2).
+    await domainInput.fill("blog.example.com");
+    await expect(page.getByTestId("cfg-domain-error")).toHaveCount(0);
+    await expect(domainInput).toHaveAttribute("aria-invalid", "false");
+
     await title.fill("E2E Site");
     const avatarBuffer = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
