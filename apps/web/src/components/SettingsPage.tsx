@@ -10,6 +10,7 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   applySiteConfigToYaml,
+  addonVersionLabel,
   isThemeId,
   parseCustomDomain,
   resolvedColorScheme,
@@ -147,6 +148,10 @@ export function SettingsPage({
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonError, setAddonError] = useState("");
   const [addonStep, setAddonStep] = useState<InstallStep | null>(null);
+  const [updatingPluginId, setUpdatingPluginId] = useState<string | null>(null);
+  const [updateStep, setUpdateStep] = useState<InstallStep | null>(null);
+  const [updateError, setUpdateError] = useState("");
+  const [updateErrorId, setUpdateErrorId] = useState<string | null>(null);
   const [openThemeMenuId, setOpenThemeMenuId] = useState<string | null>(null);
   const [selectedPlugin, setSelectedPlugin] = useState<AddonManifest | null>(null);
   const [pluginValues, setPluginValues] = useState<ThemeSettings>({});
@@ -346,6 +351,8 @@ export function SettingsPage({
     setAddonBusy(true);
     setAddonError("");
     setAddonStep({ label: "正在准备", percent: 0 });
+    setUpdateError("");
+    setUpdateErrorId(null);
     try {
       await onInstallAddon(addonSource.trim(), kind, setAddonStep);
       setAddonSource("");
@@ -358,7 +365,7 @@ export function SettingsPage({
     }
   };
 
-  const submitUpdate = async (id: string) => {
+  const submitThemeUpdate = async (id: string) => {
     setAddonBusy(true);
     setAddonError("");
     setAddonStep({ label: "正在准备", percent: 0 });
@@ -371,6 +378,24 @@ export function SettingsPage({
       window.setTimeout(() => setAddonStep(null), 1_200);
     }
   };
+
+  const submitPluginUpdate = async (id: string) => {
+    setUpdatingPluginId(id);
+    setUpdateError("");
+    setUpdateErrorId(null);
+    setUpdateStep({ label: "正在准备", percent: 0 });
+    try {
+      await onUpdateAddon(id, setUpdateStep);
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : "更新失败");
+      setUpdateErrorId(id);
+    } finally {
+      setUpdatingPluginId(null);
+      window.setTimeout(() => setUpdateStep(null), 1_200);
+    }
+  };
+
+  const pluginGateBusy = addonBusy || Boolean(updatingPluginId);
 
   const selectPlugin = async (plugin: AddonManifest) => {
     setSelectedPlugin(plugin);
@@ -621,7 +646,7 @@ export function SettingsPage({
                               onOpenChange={(next) => setOpenThemeMenuId(next ? item.id : null)}
                               busy={addonBusy}
                               inUse={on}
-                              onUpdate={() => void submitUpdate(item.id)}
+                              onUpdate={() => void submitThemeUpdate(item.id)}
                               onRemove={() => void mutateAddon(() => onRemoveAddon(item.id))}
                             />
                           ) : null}
@@ -641,7 +666,7 @@ export function SettingsPage({
                     className="primary icon-label"
                     disabled={addonBusy}
                     data-testid={`theme-update-current-${meta.id}`}
-                    onClick={() => void submitUpdate(meta.id)}
+                    onClick={() => void submitThemeUpdate(meta.id)}
                   >
                     <ArrowPathIcon className="ui-icon" aria-hidden="true" />
                     更新主题
@@ -690,61 +715,107 @@ export function SettingsPage({
                 busy={addonBusy}
                 error={addonError}
                 step={addonStep}
+                disabled={Boolean(updatingPluginId)}
                 onSource={setAddonSource}
                 onInstall={() => void submitAddon("plugin")}
               />
               <div className="addon-list">
-                {plugins.map((plugin) => (
-                  <article className="addon-row" key={plugin.id} data-testid={`plugin-${plugin.id}`}>
-                    <button
-                      type="button"
-                      className="addon-row-info"
-                      onClick={() => void selectPlugin(plugin)}
+                {plugins.map((plugin) => {
+                  const updating = updatingPluginId === plugin.id;
+                  const rowError = updateErrorId === plugin.id ? updateError : "";
+                  const versionLabel = addonVersionLabel(plugin);
+                  return (
+                    <article
+                      className={updating ? "addon-row updating" : "addon-row"}
+                      key={plugin.id}
+                      data-testid={`plugin-${plugin.id}`}
                     >
-                      <strong>{plugin.label}</strong>
-                      <span>{plugin.description}</span>
-                      <small>{plugin.builtin ? (plugin.core ? "核心预装" : "预装") : "用户安装"}</small>
-                    </button>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={plugin.enabled !== false}
-                      className={plugin.enabled !== false ? "studio-switch on" : "studio-switch"}
-                      disabled={plugin.core}
-                      data-testid={`plugin-toggle-${plugin.id}`}
-                      onClick={() =>
-                        void mutateAddon(() =>
-                          onToggleAddon(plugin.id, plugin.enabled === false),
-                        )
-                      }
-                    >
-                      <i />
-                    </button>
-                    {!plugin.builtin ? (
-                      <div className="addon-row-actions">
-                        <button
-                          type="button"
-                          className="ghost icon-label addon-action"
-                          disabled={addonBusy}
-                          data-testid={`plugin-update-${plugin.id}`}
-                          onClick={() => void submitUpdate(plugin.id)}
+                      <button
+                        type="button"
+                        className="addon-row-info"
+                        onClick={() => void selectPlugin(plugin)}
+                      >
+                        <span className="addon-row-name">
+                          <strong>{plugin.label}</strong>
+                          <span
+                            className={
+                              versionLabel === "未知版本"
+                                ? "addon-version muted"
+                                : "addon-version"
+                            }
+                            data-testid={`plugin-version-${plugin.id}`}
+                          >
+                            {updating ? `${versionLabel} → 更新中` : versionLabel}
+                          </span>
+                        </span>
+                        <span>{plugin.description}</span>
+                        <small>
+                          {plugin.builtin
+                            ? plugin.core
+                              ? "核心预装"
+                              : "预装"
+                            : plugin.source.type === "github"
+                              ? "用户安装 · GitHub"
+                              : "用户安装 · npm"}
+                        </small>
+                      </button>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={plugin.enabled !== false}
+                        className={plugin.enabled !== false ? "studio-switch on" : "studio-switch"}
+                        disabled={plugin.core || updating}
+                        data-testid={`plugin-toggle-${plugin.id}`}
+                        onClick={() =>
+                          void mutateAddon(() =>
+                            onToggleAddon(plugin.id, plugin.enabled === false),
+                          )
+                        }
+                      >
+                        <i />
+                      </button>
+                      {!plugin.builtin ? (
+                        <div className="addon-row-actions">
+                          <button
+                            type="button"
+                            className={
+                              updating
+                                ? "primary icon-label addon-action"
+                                : "ghost icon-label addon-action"
+                            }
+                            disabled={pluginGateBusy}
+                            data-testid={`plugin-update-${plugin.id}`}
+                            onClick={() => void submitPluginUpdate(plugin.id)}
+                          >
+                            <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                            {updating ? "更新中…" : "更新"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost icon-label addon-action"
+                            disabled={pluginGateBusy}
+                            data-testid={`plugin-remove-${plugin.id}`}
+                            onClick={() => void mutateAddon(() => onRemoveAddon(plugin.id))}
+                          >
+                            <TrashIcon className="ui-icon" aria-hidden="true" />
+                            卸载
+                          </button>
+                        </div>
+                      ) : null}
+                      {updating ? (
+                        <PluginUpdateProgress pluginId={plugin.id} step={updateStep} />
+                      ) : null}
+                      {rowError ? (
+                        <p
+                          className="hint error-text addon-row-error"
+                          data-testid={`plugin-update-error-${plugin.id}`}
                         >
-                          <ArrowPathIcon className="ui-icon" aria-hidden="true" />
-                          更新
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost icon-label addon-action"
-                          disabled={addonBusy}
-                          onClick={() => void mutateAddon(() => onRemoveAddon(plugin.id))}
-                        >
-                          <TrashIcon className="ui-icon" aria-hidden="true" />
-                          卸载
-                        </button>
-                      </div>
-                    ) : null}
-                  </article>
-                ))}
+                          {rowError}
+                        </p>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
               {selectedPlugin ? (
                 <section className="plugin-config" data-testid="plugin-config">
@@ -1007,6 +1078,7 @@ function AddonInstaller({
   busy,
   error,
   step,
+  disabled = false,
   onSource,
   onInstall,
 }: {
@@ -1015,11 +1087,13 @@ function AddonInstaller({
   busy: boolean;
   error: string;
   step: InstallStep | null;
+  disabled?: boolean;
   onSource: (value: string) => void;
   onInstall: () => void;
 }) {
   const noun = kind === "theme" ? "主题" : "插件";
   const percent = useSmoothedPercent(step?.percent ?? 0, busy);
+  const locked = busy || disabled;
 
   return (
     <div className="addon-installer" data-testid={`addon-installer-${kind}`}>
@@ -1028,7 +1102,7 @@ function AddonInstaller({
           安装{noun}
           <input
             value={source}
-            disabled={busy}
+            disabled={locked}
             data-testid={`addon-source-${kind}`}
             placeholder={kind === "theme" ? "hexo-theme-name 或 owner/repo" : "hexo-plugin-name 或 owner/repo"}
             onChange={(event) => onSource(event.target.value)}
@@ -1040,7 +1114,7 @@ function AddonInstaller({
         <button
           type="button"
           className="primary icon-label"
-          disabled={busy || !source.trim()}
+          disabled={locked || !source.trim()}
           data-testid={`addon-install-${kind}`}
           onClick={onInstall}
         >
@@ -1073,6 +1147,35 @@ function AddonInstaller({
         </div>
       ) : null}
       {error ? <p className="hint error-text">{error}</p> : null}
+    </div>
+  );
+}
+
+function PluginUpdateProgress({
+  pluginId,
+  step,
+}: {
+  pluginId: string;
+  step: InstallStep | null;
+}) {
+  const percent = useSmoothedPercent(step?.percent ?? 0, true);
+  return (
+    <div
+      className="addon-progress addon-row-progress"
+      data-testid={`plugin-update-progress-${pluginId}`}
+      role="progressbar"
+      aria-valuenow={percent}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="更新插件进度"
+    >
+      <div className="addon-progress-track">
+        <i style={{ width: `${Math.max(percent, 4)}%` }} />
+      </div>
+      <div className="addon-progress-text">
+        <span>{step?.label || "更新中…"}</span>
+        <em>{percent}%</em>
+      </div>
     </div>
   );
 }

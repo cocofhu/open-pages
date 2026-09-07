@@ -14,6 +14,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { delimiter, dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { x as extractTar } from "tar";
 import {
   BUILTIN_ADDONS,
@@ -113,10 +114,20 @@ async function writeIndex(owner: string, index: AddonIndex): Promise<void> {
   async function listAddons(owner: string, kind?: AddonKind): Promise<AddonManifest[]> {
   const index = await readIndex(owner);
   const disabled = new Set(index.disabledPlugins);
-  const builtins = BUILTIN_ADDONS.map((addon) => ({
-    ...addon,
-    enabled: addon.kind === "plugin" ? addon.core || !disabled.has(addon.id) : undefined,
-  }));
+  const builtins = await Promise.all(
+    BUILTIN_ADDONS.map(async (addon) => {
+      const version = await readBuiltinPackageVersion(addon.packageName);
+      return {
+        ...addon,
+        enabled: addon.kind === "plugin" ? addon.core || !disabled.has(addon.id) : undefined,
+        installedVersion: version || undefined,
+        source:
+          addon.source.type === "builtin"
+            ? { ...addon.source, version: version || addon.source.version }
+            : addon.source,
+      };
+    }),
+  );
   const extras = await Promise.all(index.addons.map((addon) => refreshStoredAddon(owner, addon)));
   return [...builtins, ...extras]
     .filter((addon) => !kind || addon.kind === kind)
@@ -224,9 +235,14 @@ async function writeIndex(owner: string, index: AddonIndex): Promise<void> {
       packageName: installed.packageName,
       label: extension?.label ?? installed.displayName ?? installed.packageName,
       description: extension?.description ?? installed.description ?? "用户安装的 Hexo 扩展",
+      installedVersion: installed.version || undefined,
       source:
         normalized.source.type === "github"
-          ? { ...normalized.source, packageName: installed.packageName }
+          ? {
+              ...normalized.source,
+              packageName: installed.packageName,
+              version: installed.version || undefined,
+            }
           : {
               type: "npm",
               packageName: installed.packageName,
@@ -441,15 +457,63 @@ async function removeAddonUnlocked(owner: string, id: string): Promise<void> {
 
 async function refreshStoredAddon(owner: string, addon: StoredAddon): Promise<StoredAddon> {
   const file = addon.kind === "theme" ? "open-pages.theme.json" : "open-pages.plugin.json";
-  const extension = await readExtensionManifest(join(packageRoot(owner, addon), file));
-  if (!extension) return addon;
-  return {
+  const root = packageRoot(owner, addon);
+  const extension = await readExtensionManifest(join(root, file));
+  const packageVersion = await readPackageJsonVersion(join(root, "package.json"));
+  const installedVersion =
+    packageVersion || addon.installedVersion || versionFromSource(addon.source) || undefined;
+  const withVersion: StoredAddon = {
     ...addon,
-    label: extension.label ?? addon.label,
-    description: extension.description ?? addon.description,
-    settings: extension.settings ?? addon.settings,
-    tint: extension.tint ?? addon.tint,
+    installedVersion,
+    source:
+      addon.source.type === "github"
+        ? { ...addon.source, version: installedVersion || addon.source.version }
+        : addon.source.type === "npm" && packageVersion
+          ? { ...addon.source, version: packageVersion }
+          : addon.source,
   };
+  if (!extension) return withVersion;
+  return {
+    ...withVersion,
+    label: extension.label ?? withVersion.label,
+    description: extension.description ?? withVersion.description,
+    settings: extension.settings ?? withVersion.settings,
+    tint: extension.tint ?? withVersion.tint,
+  };
+}
+
+function versionFromSource(source: AddonManifest["source"]): string {
+  if (source.type === "github") return source.version?.trim() ?? "";
+  const version = source.version?.trim() ?? "";
+  return !version || version === "latest" ? "" : version;
+}
+
+async function readPackageJsonVersion(path: string): Promise<string> {
+  try {
+    const json = JSON.parse(await readFile(path, "utf8")) as { version?: string };
+    return typeof json.version === "string" ? json.version.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Resolve a preinstalled Hexo package version from hexo-runner / workspace node_modules. */
+async function readBuiltinPackageVersion(packageName: string): Promise<string> {
+  const searchRoots = [
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../hexo-runner"),
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../.."),
+    process.cwd(),
+  ];
+  for (const root of searchRoots) {
+    try {
+      const pkgJson = require.resolve(`${packageName}/package.json`, { paths: [root] });
+      const version = await readPackageJsonVersion(pkgJson);
+      if (version) return version;
+    } catch {
+      // try next root
+    }
+  }
+  return "";
 }
 
 function packageRoot(owner: string, addon: StoredAddon): string {
@@ -480,7 +544,12 @@ function publicAddon(addon: AddonManifest | StoredAddon): AddonManifest {
   const { installDir: _installDir, ...manifest } = addon as StoredAddon & {
     installDir?: string;
   };
-  return manifest;
+  const installedVersion =
+    manifest.installedVersion?.trim() || versionFromSource(manifest.source) || undefined;
+  return {
+    ...manifest,
+    installedVersion,
+  };
 }
 
 function sameSource(
