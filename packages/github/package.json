@@ -11,7 +11,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/commit-delete.test.ts"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.0",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.18.0",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
 }

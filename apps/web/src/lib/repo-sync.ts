@@ -66,8 +66,10 @@ export function blankSiteSeedFiles(): SiteFile[] {
   ];
 }
 
-export async function hasUnpublishedRepoChanges(): Promise<boolean> {
-  const files = await listFiles();
+/** Pure check used by Settings and publish-finish tests (plan g2 / f5). */
+export function unpublishedRepoChangesFromFiles(
+  files: Array<{ path: string; content: string; encoding: string }>,
+): boolean {
   const byPath = new Map(files.map((file) => [file.path, file]));
   const origins = files.filter((file) => isOriginPath(file.path));
   if (!origins.length) return files.some((file) => isLiveImportPath(file.path));
@@ -84,6 +86,30 @@ export async function hasUnpublishedRepoChanges(): Promise<boolean> {
   return false;
 }
 
+export async function hasUnpublishedRepoChanges(): Promise<boolean> {
+  return unpublishedRepoChangesFromFiles(await listFiles());
+}
+
+/** Snapshot live editable files into source/origin/ (bind sync / publish success). */
+export function originSnapshotsFromLive(
+  files: Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>,
+): SiteFile[] {
+  return files
+    .filter((file) => isLiveImportPath(file.path))
+    .map((file) => ({
+      path: originSnapshotPath(file.path),
+      content: file.content,
+      encoding: file.encoding ?? "utf8",
+    }));
+}
+
+/** Rewrite origin from current live editable files after a successful publish (plan g2.2). */
+export async function refreshOriginFromLive(): Promise<void> {
+  const files = await listFiles();
+  await deleteByPrefix("source/origin/");
+  await writeFiles(originSnapshotsFromLive(files));
+}
+
 async function removeLivePaths(paths: string[]): Promise<void> {
   for (const path of paths) {
     await deleteFile(path);
@@ -93,6 +119,7 @@ async function removeLivePaths(paths: string[]): Promise<void> {
 /**
  * Replace local live files + origin with the remote snapshot.
  * Empty snapshots fall back to the product blank-site seed so old posts cannot linger.
+ * Origin only backs up live import paths (plan g2.1) — never README/manifest.
  */
 export async function applyRepoSnapshot(
   snapshot: { files: SiteFile[]; defaultBranch: string },
@@ -107,15 +134,8 @@ export async function applyRepoSnapshot(
 
   onProgress?.({ label: "正在写入 origin 备份", percent: 72 });
   await deleteByPrefix("source/origin/");
-  if (snapshot.files.length) {
-    await writeFiles(
-      snapshot.files.map((file) => ({
-        path: originSnapshotPath(file.path),
-        content: file.content,
-        encoding: file.encoding,
-      })),
-    );
-  }
+  // Origin mirrors target live only (blank seed or live import paths), not full snapshot.
+  await writeFiles(originSnapshotsFromLive(targetLive));
 
   onProgress?.({ label: "正在替换本地站点", percent: 80 });
   const existing = await listFiles();

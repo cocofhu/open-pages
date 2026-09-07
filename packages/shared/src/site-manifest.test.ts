@@ -121,6 +121,15 @@ test("origin snapshot paths are not treated as pages", async () => {
   assert.equal(fileKind("source/about/index.md"), "page");
 });
 
+test("isUserEditablePath excludes ORIGIN_PREFIX (plan g1.1)", async () => {
+  const { isUserEditablePath } = await import("./index.js");
+  assert.equal(isUserEditablePath("source/origin/_config.yml"), false);
+  assert.equal(isUserEditablePath("source/origin/source/_posts/a.md"), false);
+  assert.equal(isUserEditablePath("source/_posts/a.md"), true);
+  assert.equal(isUserEditablePath("_config.yml"), true);
+  assert.equal(isUserEditablePath("source/about/index.md"), true);
+});
+
 test("repoRootLooksForeign detects hexo markers", () => {
   assert.equal(repoRootLooksForeign(["README.md"]), false);
   assert.equal(repoRootLooksForeign(["package.json"]), true);

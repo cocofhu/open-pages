@@ -42,7 +42,7 @@ import { SettingsPage, type SettingsTab } from "./components/SettingsPage";
 import { Toast, type ToastState } from "./components/Toast";
 import { TopBar, type EditorMode } from "./components/TopBar";
 import type { AuthUser } from "./lib/api";
-import { applyRepoSnapshot, resetBlankSite } from "./lib/repo-sync";
+import { applyRepoSnapshot, refreshOriginFromLive, resetBlankSite } from "./lib/repo-sync";
 import { bindingAfterPublish, resolvePublishTarget } from "./lib/publish-target";
 import { isTauri, platform } from "./lib/platform";
 import { type OutlineHeading } from "./lib/outline";
@@ -771,6 +771,15 @@ export function App() {
         // string (incl. "") = settings target state; omit when never configured → preserve remote
         ...(typeof github?.customDomain === "string" ? { customDomain: github.customDomain } : {}),
       });
+      // Plan g2.3: refresh local origin only after successful publish; failures leave baseline untouched.
+      try {
+        await refreshOriginFromLive();
+      } catch (originError) {
+        setToast({
+          kind: "error",
+          text: errorMessage(originError, "发布成功，但本地最新版标记更新失败"),
+        });
+      }
       const binding = bindingAfterPublish(github, result);
       setGithub(binding);
       await saveConfig(config, binding);

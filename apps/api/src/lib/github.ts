@@ -3,6 +3,7 @@ export {
   createRepo,
   enablePages,
   listRepos,
+  listBranchPathsWithPrefix,
   octokit,
   assessRepoForPublish,
   getRepoTextFile,

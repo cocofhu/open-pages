@@ -9,6 +9,7 @@ import {
   manifestAddonsFromCatalog,
   openPagesManifestFile,
   openPagesReadmeFile,
+  ORIGIN_PREFIX,
   pagesUrl,
   parseCustomDomain,
   parseRepoName,
@@ -22,7 +23,7 @@ import {
   type SiteConfig,
   type SiteFile,
 } from "@open-pages/shared";
-import { assessRepoForPublish, commitFiles, createRepo, enablePages, readPagesCustomDomain } from "@open-pages/github";
+import { assessRepoForPublish, commitFiles, createRepo, enablePages, listBranchPathsWithPrefix, readPagesCustomDomain } from "@open-pages/github";
 import type { GenerationAddons } from "@open-pages/addons";
 import {
   generateSite,
@@ -215,6 +216,14 @@ export async function publishSite(options: {
     }),
   );
 
+  // Plan g3.2: never commit origin; delete any remote source/origin blobs from current tree.
+  const remoteOriginPaths = await listBranchPathsWithPrefix({
+    token: options.token,
+    owner,
+    repo,
+    branch: "main",
+    prefix: ORIGIN_PREFIX,
+  });
   await commitFiles({
     token: options.token,
     owner,
@@ -222,6 +231,7 @@ export async function publishSite(options: {
     branch: "main",
     message: "chore: update site source from Open Pages",
     files: sourceFiles,
+    deletePaths: remoteOriginPaths,
   });
 
   const publicFiles = withCnameFile(await listPublicFiles(join(siteDir, "public")), hostname);
