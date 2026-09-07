@@ -9,6 +9,7 @@ import {
   manifestAddonsFromCatalog,
   openPagesManifestFile,
   openPagesReadmeFile,
+  ORIGIN_PREFIX,
   pagesUrl,
   parseCustomDomain,
   parseRepoName,
@@ -34,6 +35,7 @@ import {
   createRepo,
   downloadRepoSnapshot,
   enablePages,
+  listBranchPathsWithPrefix,
   listRepos,
   readPagesCustomDomain,
 } from "../lib/github.js";
@@ -257,6 +259,14 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     }),
   );
 
+  // Plan g3.2: Web API publish matches desktop — no origin in files; prune remote origin.
+  const remoteOriginPaths = await listBranchPathsWithPrefix({
+    token: session.accessToken,
+    owner,
+    repo,
+    branch: "main",
+    prefix: ORIGIN_PREFIX,
+  });
   await commitFiles({
     token: session.accessToken,
     owner,
@@ -264,6 +274,7 @@ siteRoutes.post("/:siteId/publish", async (c) => {
     branch: "main",
     message: "chore: update site source from Open Pages",
     files: sourceFiles,
+    deletePaths: remoteOriginPaths,
   });
 
   const publicFiles = withCnameFile(await listPublicFiles(join(dir, "public")), hostname);

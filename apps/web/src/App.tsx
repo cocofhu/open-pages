@@ -44,7 +44,7 @@ import { SettingsPage, type SettingsTab } from "./components/SettingsPage";
 import { Toast, type ToastState } from "./components/Toast";
 import { TopBar, type EditorMode } from "./components/TopBar";
 import type { AuthUser } from "./lib/api";
-import { applyRepoSnapshot, captureOriginFromLive, resetBlankSite } from "./lib/repo-sync";
+import { applyRepoSnapshot, refreshOriginFromLive, resetBlankSite } from "./lib/repo-sync";
 import { bindingAfterPublish, resolvePublishTarget } from "./lib/publish-target";
 import { logoutWipeConfirmCopy } from "./lib/repo-onboarding-copy";
 import { isTauri, platform } from "./lib/platform";
@@ -805,9 +805,9 @@ export function App() {
         // string (incl. "") = settings target state; omit when never configured → preserve remote
         ...(typeof github?.customDomain === "string" ? { customDomain: github.customDomain } : {}),
       });
-      // Plan g1.1: rewrite origin from the just-pushed live files so Settings shows「已是最新版」.
+      // Refresh local origin only after successful publish so Settings shows「已是最新版」; failures leave baseline untouched.
       try {
-        await captureOriginFromLive();
+        await refreshOriginFromLive();
       } catch (originError) {
         setToast({
           kind: "error",

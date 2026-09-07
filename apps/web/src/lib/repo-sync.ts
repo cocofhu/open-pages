@@ -66,7 +66,7 @@ export function blankSiteSeedFiles(): SiteFile[] {
   ];
 }
 
-/** Pure check used by Settings and publish-finish tests. */
+/** Pure check used by Settings and publish-finish tests (plan g2 / f5). */
 export function unpublishedRepoChangesFromFiles(
   files: Array<{ path: string; content: string; encoding: string }>,
 ): boolean {
@@ -90,7 +90,7 @@ export async function hasUnpublishedRepoChanges(): Promise<boolean> {
   return unpublishedRepoChangesFromFiles(await listFiles());
 }
 
-/** Snapshot live editable files into source/origin/ (publish success / blank seed). */
+/** Snapshot live editable files into source/origin/ (bind sync / publish success / blank seed). */
 export function originSnapshotsFromLive(
   files: Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>,
 ): SiteFile[] {
@@ -103,8 +103,8 @@ export function originSnapshotsFromLive(
     }));
 }
 
-/** Rewrite origin from current live editable files after a successful publish. */
-export async function captureOriginFromLive(): Promise<void> {
+/** Rewrite origin from current live editable files after a successful publish (plan g2.2). */
+export async function refreshOriginFromLive(): Promise<void> {
   const files = await listFiles();
   await deleteByPrefix("source/origin/");
   await writeFiles(originSnapshotsFromLive(files));
@@ -119,6 +119,7 @@ async function removeLivePaths(paths: string[]): Promise<void> {
 /**
  * Replace local live files + origin with the remote snapshot.
  * Empty snapshots fall back to the product blank-site seed so old posts cannot linger.
+ * Origin only backs up live import paths (plan g2.1) — never README/manifest.
  */
 export async function applyRepoSnapshot(
   snapshot: { files: SiteFile[]; defaultBranch: string },
@@ -133,11 +134,9 @@ export async function applyRepoSnapshot(
 
   onProgress?.({ label: "正在写入 origin 备份", percent: 72 });
   await deleteByPrefix("source/origin/");
+  // Origin mirrors target live only (blank seed or live import paths), not full snapshot.
   // Empty remote → blank seed: still write origin so the bind card is not forever dirty.
-  const originSource = useBlankSeed ? targetLive : snapshot.files;
-  if (originSource.length) {
-    await writeFiles(originSnapshotsFromLive(originSource));
-  }
+  await writeFiles(originSnapshotsFromLive(targetLive));
 
   onProgress?.({ label: "正在替换本地站点", percent: 80 });
   const existing = await listFiles();

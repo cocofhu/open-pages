@@ -311,6 +311,8 @@ export function fileKind(path: string): FileKind {
 export function isUserEditablePath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/");
   if (normalized.includes("..")) return false;
+  // Local origin baseline is never editable source / never publishable to GitHub.
+  if (isOriginPath(normalized)) return false;
   if (normalized === "_config.yml" || isThemeConfigPath(normalized)) return true;
   return (
     normalized.startsWith("source/") &&

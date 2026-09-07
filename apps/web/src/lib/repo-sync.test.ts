@@ -60,6 +60,48 @@ test("isLiveImportPath ignores origin and manifest", () => {
   assert.equal(isLiveImportPath("manifest.json"), false);
 });
 
+test("originSnapshotsFromLive only backs up live import paths (plan g2.1)", () => {
+  const snapshots = originSnapshotsFromLive([
+    { path: "source/_posts/a.md", content: "post", encoding: "utf8" },
+    { path: "_config.yml", content: "title: t", encoding: "utf8" },
+    { path: "README.md", content: "# hi", encoding: "utf8" },
+    { path: "manifest.json", content: "{}", encoding: "utf8" },
+    { path: "source/origin/_config.yml", content: "stale", encoding: "utf8" },
+  ]);
+  assert.deepEqual(
+    snapshots.map((f) => f.path).sort(),
+    ["source/origin/_config.yml", "source/origin/source/_posts/a.md"].sort(),
+  );
+  assert.ok(!snapshots.some((f) => f.path.includes("README") || f.path.includes("manifest")));
+});
+
+test("unpublishedRepoChangesFromFiles: no origin + live => dirty (plan f5)", () => {
+  assert.equal(
+    unpublishedRepoChangesFromFiles([
+      { path: "_config.yml", content: "x", encoding: "utf8" },
+      { path: WELCOME_POST_PATH, content: "y", encoding: "utf8" },
+    ]),
+    true,
+  );
+});
+
+test("unpublishedRepoChangesFromFiles: matching origin => clean after refresh (plan g2.2)", () => {
+  const live = [
+    { path: "_config.yml", content: "title: ok", encoding: "utf8" as const },
+    { path: "source/_posts/a.md", content: "hi", encoding: "utf8" as const },
+  ];
+  const withOrigin = [...live, ...originSnapshotsFromLive(live)];
+  assert.equal(unpublishedRepoChangesFromFiles(withOrigin), false);
+});
+
+test("unpublishedRepoChangesFromFiles: edited live => dirty", () => {
+  const files = [
+    { path: "_config.yml", content: "title: new", encoding: "utf8" },
+    { path: "source/origin/_config.yml", content: "title: old", encoding: "utf8" },
+  ];
+  assert.equal(unpublishedRepoChangesFromFiles(files), true);
+});
+
 test("switchRepoConfirmCopy names the target existing repo", () => {
   const copy = switchRepoConfirmCopy({ owner: "alice", repo: "new-blog", createRepo: false });
   assert.equal(copy.title, "切换到新仓库？");

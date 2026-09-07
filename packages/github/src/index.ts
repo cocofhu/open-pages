@@ -101,6 +101,26 @@ export async function createRepo(token: string, name: string, isPrivate = false)
   };
 }
 
+/** Build createTree delete entries (sha null) for merge commits; skip paths already being written. */
+export function mergeDeleteTreeEntries(
+  deletePaths: string[],
+  writtenPaths: Iterable<string> = [],
+): Array<{ path: string; mode: "100644"; type: "blob"; sha: null }> {
+  const seen = new Set(writtenPaths);
+  const entries: Array<{ path: string; mode: "100644"; type: "blob"; sha: null }> = [];
+  for (const path of deletePaths) {
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    entries.push({
+      path,
+      mode: "100644",
+      type: "blob",
+      sha: null,
+    });
+  }
+  return entries;
+}
+
 export async function commitFiles(options: {
   token: string;
   owner: string;
@@ -110,10 +130,15 @@ export async function commitFiles(options: {
   files: SiteFile[];
   /** Replace the branch snapshot instead of merging onto the existing tree. */
   replace?: boolean;
+  /**
+   * Paths to remove from the branch in merge mode (GitHub createTree sha=null).
+   * Ignored when replace is true. Used to prune leaked source/origin/ trees (plan g3.1).
+   */
+  deletePaths?: string[];
 }): Promise<string> {
   const gh = octokit(options.token);
-  const { owner, repo, branch, message, files, replace } = options;
-  if (!files.length) {
+  const { owner, repo, branch, message, files, replace, deletePaths } = options;
+  if (!files.length && !(deletePaths?.length)) {
     throw new Error("Cannot commit an empty tree");
   }
   let parentSha: string | undefined;
@@ -128,7 +153,12 @@ export async function commitFiles(options: {
     baseTree = undefined;
   }
 
-  const treeItems = await Promise.all(
+  const treeItems: Array<{
+    path: string;
+    mode: "100644";
+    type: "blob";
+    sha: string | null;
+  }> = await Promise.all(
     files.map(async (file) => {
       const encoding = file.encoding === "base64" ? "base64" : "utf-8";
       const blob = await gh.git.createBlob({
@@ -146,11 +176,21 @@ export async function commitFiles(options: {
     }),
   );
 
+  if (!replace && deletePaths?.length) {
+    treeItems.push(...mergeDeleteTreeEntries(deletePaths, treeItems.map((item) => item.path)));
+  }
+
   const tree = await gh.git.createTree({
     owner,
     repo,
     ...(replace ? {} : { base_tree: baseTree }),
-    tree: treeItems,
+    // GitHub accepts sha:null for deletes; cast keeps Octokit happy.
+    tree: treeItems as Array<{
+      path: string;
+      mode: "100644";
+      type: "blob";
+      sha: string | null;
+    }>,
   });
 
   const commit = await gh.git.createCommit({
@@ -177,6 +217,38 @@ export async function commitFiles(options: {
     });
   }
   return commit.data.sha;
+}
+
+/** List blob paths under a prefix on a branch (for pruning remote origin, plan g3.1). */
+export async function listBranchPathsWithPrefix(options: {
+  token: string;
+  owner: string;
+  repo: string;
+  branch: string;
+  prefix: string;
+}): Promise<string[]> {
+  const gh = octokit(options.token);
+  const { owner, repo, branch, prefix } = options;
+  try {
+    const ref = await gh.git.getRef({ owner, repo, ref: `heads/${branch}` });
+    const tree = await gh.git.getTree({
+      owner,
+      repo,
+      tree_sha: ref.data.object.sha,
+      recursive: "true",
+    });
+    return tree.data.tree
+      .filter(
+        (entry) =>
+          entry.type === "blob" &&
+          typeof entry.path === "string" &&
+          entry.path.startsWith(prefix),
+      )
+      .map((entry) => entry.path as string);
+  } catch (error) {
+    if (githubStatus(error) === 404) return [];
+    throw error;
+  }
 }
 
 function githubStatus(error: unknown): number | undefined {

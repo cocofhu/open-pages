@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/resolve-domain.test.ts"
+    "test": "node --import tsx --test src/resolve-domain.test.ts src/publishable-source.test.ts"
   },
   "dependencies": {
     "@open-pages/addons": "workspace:*",
