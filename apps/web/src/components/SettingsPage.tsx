@@ -505,8 +505,17 @@ export function SettingsPage({
                     spellCheck={false}
                     aria-invalid={Boolean(domainError)}
                     onChange={(event) => {
-                      setDraftDomain(event.target.value);
-                      if (domainError) setDomainError("");
+                      const next = event.target.value;
+                      setDraftDomain(next);
+                      // Re-validate while an error is visible so fixing clears it immediately.
+                      if (domainError) {
+                        const parsed = parseCustomDomain(next);
+                        setDomainError(parsed.ok ? "" : parsed.error);
+                      }
+                    }}
+                    onBlur={(event) => {
+                      const parsed = parseCustomDomain(event.currentTarget.value);
+                      setDomainError(parsed.ok ? "" : parsed.error);
                     }}
                   />
                   <button
