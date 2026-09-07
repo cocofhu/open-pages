@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
-import { lstat, readFile, readdir, realpath } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { createAddonStore } from "@open-pages/addons";
 import { assessRepoForPublish, createRepo, downloadRepoSnapshot, listRepos, readPagesCustomDomain } from "@open-pages/github";
@@ -249,6 +249,17 @@ async function handleControl(req: IncomingMessage, res: ServerResponse): Promise
             : undefined,
       });
       sendJson(res, 200, { ok: true, elapsedMs: result.elapsedMs, url: result.url });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/reset-site") {
+      const body = await readJson<{ siteId?: string }>(req);
+      const siteId = typeof body.siteId === "string" ? body.siteId.trim() : "";
+      if (!isSafeSiteId(siteId)) {
+        sendJson(res, 400, { error: "Invalid site id" });
+        return;
+      }
+      await rm(localSiteDir(siteId), { recursive: true, force: true });
+      sendJson(res, 200, { ok: true });
       return;
     }
     if (req.method === "POST" && url.pathname === "/publish") {

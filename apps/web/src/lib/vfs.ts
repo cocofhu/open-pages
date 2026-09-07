@@ -139,6 +139,26 @@ export async function snapshotFiles(): Promise<SiteFile[]> {
   return files.map(({ path, content, encoding }) => ({ path, content, encoding }));
 }
 
+/** Wipe IndexedDB site files/meta and revoke cached image URLs (logout / re-onboard). */
+export async function clearLocalSiteData(): Promise<void> {
+  for (const url of imageUrlCache.values()) URL.revokeObjectURL(url);
+  imageUrlCache.clear();
+
+  const database = await db();
+  await database.clear("files");
+  await database.clear("meta");
+  database.close();
+  dbPromise = null;
+
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("无法删除本地站点数据库"));
+    // Another tab may hold the DB open; treat blocked as best-effort success after clear().
+    request.onblocked = () => resolve();
+  });
+}
+
 export function fileName(path: string): string {
   return path.split("/").pop() ?? path;
 }
