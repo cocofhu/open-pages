@@ -29,6 +29,7 @@ import { BootScreen } from "./components/BootScreen";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { RepoOnboarding } from "./components/RepoOnboarding";
 import { errorMessage } from "./lib/errors";
+import { guardNativeContextMenu } from "./lib/page-context-menu";
 import type { SettingsDraft } from "./components/SettingsPage";
 import { DocMetaPanel } from "./components/DocMetaPanel";
 import { MarkdownEditor, SourceEditor, type SourceEditorHandle } from "./components/Editor";
@@ -864,6 +865,7 @@ export function App() {
       className={sidebarVisible ? "shell" : "shell sidebar-collapsed"}
       data-testid="app-shell"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
+      onContextMenu={guardNativeContextMenu}
     >
       {sidebarVisible && (
         <button

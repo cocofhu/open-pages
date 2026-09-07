@@ -594,3 +594,42 @@ graph LR
     await expect(page.getByTestId("title-input")).toBeVisible();
   });
 });
+
+/**
+ * Native page context menu: defaultPrevented means the app hid 返回/刷新/另存为/打印.
+ * plan g2.1 / g2.2 — shell hide vs editable allow.
+ */
+async function contextMenuDefaultPrevented(page: Page, testId: string): Promise<boolean> {
+  return page.getByTestId(testId).evaluate((node) => {
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, view: window });
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+}
+
+test.describe("native page context menu", () => {
+  test("hides native menu on app chrome (plan g2.1)", async ({ page }) => {
+    await boot(page);
+    // Top bar chrome and sidebar site title are non-editable shell surfaces.
+    expect(await contextMenuDefaultPrevented(page, "btn-files-top")).toBe(true);
+    expect(await contextMenuDefaultPrevented(page, "sidebar-site-title")).toBe(true);
+  });
+
+  test("allows native menu on title input and editors (plan g2.2)", async ({ page }) => {
+    await boot(page);
+    expect(await contextMenuDefaultPrevented(page, "title-input")).toBe(false);
+
+    await expect(page.getByTestId("wysiwyg-editor")).toBeVisible();
+    expect(await contextMenuDefaultPrevented(page, "wysiwyg-editor")).toBe(false);
+
+    await page.getByTestId("btn-source").click();
+    await expect(page.getByTestId("source-editor")).toBeVisible();
+    await expect(page.locator(".cm-editor").first()).toBeVisible();
+    const sourceAllowed = await page.locator(".cm-editor").first().evaluate((node) => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, view: window });
+      node.dispatchEvent(event);
+      return !event.defaultPrevented;
+    });
+    expect(sourceAllowed).toBe(true);
+  });
+});
