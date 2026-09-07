@@ -124,6 +124,15 @@ export const platform = {
     return invoke<{ customDomain: string | null }>("pages_domain", { owner, repo });
   },
 
+  /** Remove generated local site workspace (web server dir or ~/.open-pages/sites/<id>). */
+  async resetSite(siteId: string): Promise<void> {
+    if (!isTauri()) {
+      await api.resetSite(siteId);
+      return;
+    }
+    await invoke("reset_site", { siteId });
+  },
+
   async installAddon(source: string, kind: AddonKind, onProgress?: (step: InstallStep) => void) {
     if (!isTauri()) return api.installAddon(source, kind, onProgress);
     onProgress?.({ label: "正在安装", percent: 12 });

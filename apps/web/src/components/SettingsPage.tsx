@@ -469,7 +469,7 @@ export function SettingsPage({
                   <p className="settings-repo-name">
                     @{github.owner}/{github.repo}
                   </p>
-                  <p className="hint">
+                  <p className="hint" data-testid="settings-repo-status">
                     {dirty || repoDirty
                       ? "重新同步会用仓库覆盖本地文章和配置，还没发布的改动会丢掉。"
                       : "已是最新版。"}
@@ -505,8 +505,17 @@ export function SettingsPage({
                     spellCheck={false}
                     aria-invalid={Boolean(domainError)}
                     onChange={(event) => {
-                      setDraftDomain(event.target.value);
-                      if (domainError) setDomainError("");
+                      const next = event.target.value;
+                      setDraftDomain(next);
+                      // Re-validate while an error is visible so fixing clears it immediately.
+                      if (domainError) {
+                        const parsed = parseCustomDomain(next);
+                        setDomainError(parsed.ok ? "" : parsed.error);
+                      }
+                    }}
+                    onBlur={(event) => {
+                      const parsed = parseCustomDomain(event.currentTarget.value);
+                      setDomainError(parsed.ok ? "" : parsed.error);
                     }}
                   />
                   <button

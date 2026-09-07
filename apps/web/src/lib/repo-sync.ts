@@ -90,7 +90,7 @@ export async function hasUnpublishedRepoChanges(): Promise<boolean> {
   return unpublishedRepoChangesFromFiles(await listFiles());
 }
 
-/** Snapshot live editable files into source/origin/ (bind sync / publish success). */
+/** Snapshot live editable files into source/origin/ (bind sync / publish success / blank seed). */
 export function originSnapshotsFromLive(
   files: Array<{ path: string; content: string; encoding?: "utf8" | "base64" }>,
 ): SiteFile[] {
@@ -135,6 +135,7 @@ export async function applyRepoSnapshot(
   onProgress?.({ label: "正在写入 origin 备份", percent: 72 });
   await deleteByPrefix("source/origin/");
   // Origin mirrors target live only (blank seed or live import paths), not full snapshot.
+  // Empty remote → blank seed: still write origin so the bind card is not forever dirty.
   await writeFiles(originSnapshotsFromLive(targetLive));
 
   onProgress?.({ label: "正在替换本地站点", percent: 80 });
@@ -174,7 +175,7 @@ export async function applyRepoSnapshot(
   };
 }
 
-/** Clear old live files and origin, then write the product blank-site seed. */
+/** Clear old live files and origin, then write the product blank-site seed + matching origin. */
 export async function resetBlankSite(
   owner: string,
   repo: string,
@@ -188,6 +189,8 @@ export async function resetBlankSite(
   await removeLivePaths(live);
   const seeds = blankSiteSeedFiles();
   await writeFiles(seeds);
+  // Seed origin with the same blank site so hasUnpublishedRepoChanges stays false until edits.
+  await writeFiles(originSnapshotsFromLive(seeds));
   return {
     config: { ...DEFAULT_SITE_CONFIG },
     binding: {

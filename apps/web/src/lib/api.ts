@@ -216,4 +216,6 @@ export const api = {
     request<{ customDomain: string | null }>(
       `/sites/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pages-domain`,
     ),
+  resetSite: (siteId: string) =>
+    request<{ ok: boolean }>(`/sites/${encodeURIComponent(siteId)}/reset`, { method: "POST" }),
 };

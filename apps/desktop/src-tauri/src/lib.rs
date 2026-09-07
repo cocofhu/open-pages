@@ -693,6 +693,16 @@ async fn pages_domain(owner: String, repo: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn reset_site(site_id: String) -> Result<Value, String> {
+    control_request(
+        reqwest::Method::POST,
+        "/reset-site",
+        Some(serde_json::json!({ "siteId": site_id })),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn download_repo_snapshot(owner: String, repo: String) -> Result<Value, String> {
     github_auth::require_token()?;
     control_request(
@@ -766,6 +776,7 @@ pub fn run() {
             create_repo,
             check_repo_publish,
             pages_domain,
+            reset_site,
             download_repo_snapshot,
             list_addons,
             install_addon,

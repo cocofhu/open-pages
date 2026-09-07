@@ -273,6 +273,165 @@ graph LR
     await expect(generated.locator(".mermaid svg")).toBeVisible();
   });
 
+  test("mermaid preview does not cover code-block chrome or language picker", async ({ page }) => {
+    // plan g2.1: language / Copy / Edit remain clickable above SVG; picker stacks above diagram
+    test.setTimeout(120_000);
+    await boot(page);
+    await page.getByTestId("btn-source").click();
+    const editor = page.getByTestId("source-editor").locator(".cm-content");
+    await editor.click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.insertText(`---
+title: Mermaid stack
+date: 2026-09-07 00:00:00
+---
+
+\`\`\`mermaid
+flowchart TD
+  Start["开始"] --> End["结束"]
+\`\`\`
+`);
+
+    const sourcePreview = page.getByTestId("source-preview");
+    await expect(sourcePreview.locator(".mermaid-diagram svg")).toBeVisible({ timeout: 30_000 });
+    // plan g1.3: shared .mermaid-diagram isolation also applies in source preview
+    await expect
+      .poll(async () =>
+        sourcePreview.locator(".mermaid-diagram").evaluate((el) => {
+          const style = getComputedStyle(el);
+          return { z: style.zIndex, isolation: style.isolation };
+        }),
+      )
+      .toEqual({ z: "0", isolation: "isolate" });
+
+    await page.getByTestId("btn-write").click();
+    const writing = page.getByTestId("wysiwyg-editor");
+    await expect(writing.locator(".mermaid-diagram svg")).toBeVisible({ timeout: 30_000 });
+    const block = writing.locator(".milkdown-code-block:has(.mermaid-diagram)").first();
+    await expect(block).toBeVisible();
+    await block.hover();
+
+    const lang = block.locator(".language-button");
+    const copy = block.locator(".copy-button");
+    const edit = block.locator(".preview-toggle-button");
+    await expect(lang).toBeVisible();
+    await expect(copy).toBeVisible();
+    await expect(edit).toBeVisible();
+
+    for (const [name, control] of [
+      ["language", lang],
+      ["Copy", copy],
+      ["Edit", edit],
+    ] as const) {
+      const hit = await control.evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return {
+          hitSelf: Boolean(top && (el === top || el.contains(top))),
+          tag: top?.tagName ?? null,
+          className: top instanceof HTMLElement ? top.className : null,
+        };
+      });
+      expect(hit.hitSelf, `${name} click blocked by ${hit.tag}.${hit.className}`).toBeTruthy();
+    }
+
+    await lang.click();
+    const picker = block.locator(".language-picker:not(.hidden)");
+    await expect(picker).toBeVisible();
+    const pickerHit = await picker.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const top = document.elementFromPoint(
+        rect.left + Math.min(24, rect.width / 2),
+        rect.top + Math.min(24, rect.height / 2),
+      );
+      return {
+        hitPicker: Boolean(top && (el === top || el.contains(top))),
+        tag: top?.tagName ?? null,
+        className: top instanceof HTMLElement ? top.className : null,
+      };
+    });
+    expect(pickerHit.hitPicker, `language picker covered by ${pickerHit.tag}.${pickerHit.className}`).toBeTruthy();
+  });
+
+  test("mermaid stacking stays below dialogs and plain code-block chrome", async ({ page }) => {
+    // plan g2.2: non-mermaid tools + modal remain above mermaid isolate layer
+    test.setTimeout(120_000);
+    await boot(page);
+    await page.getByTestId("btn-source").click();
+    const editor = page.getByTestId("source-editor").locator(".cm-content");
+    await editor.click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.insertText(`---
+title: Mermaid stack regression
+date: 2026-09-07 00:00:00
+---
+
+\`\`\`ts
+const ok = true;
+\`\`\`
+
+\`\`\`mermaid
+flowchart TD
+  Start["开始"] --> End["结束"]
+\`\`\`
+`);
+
+    await expect(page.getByTestId("source-preview").locator(".mermaid-diagram svg")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByTestId("btn-write").click();
+    const writing = page.getByTestId("wysiwyg-editor");
+    await expect(writing.locator(".mermaid-diagram svg")).toBeVisible({ timeout: 30_000 });
+    const mermaidBlock = writing.locator(".milkdown-code-block:has(.mermaid-diagram)").first();
+    const plainBlock = writing.locator(".milkdown-code-block:not(:has(.mermaid-diagram))").first();
+    await expect(mermaidBlock).toBeVisible();
+    await expect(plainBlock).toBeVisible();
+
+    await plainBlock.hover();
+    const plainLang = plainBlock.locator(".language-button");
+    await expect(plainLang).toBeVisible();
+    const plainHit = await plainLang.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return Boolean(top && (el === top || el.contains(top)));
+    });
+    expect(plainHit, "plain code-block language button was blocked").toBeTruthy();
+
+    const stackLevels = await page.evaluate(() => {
+      const diagram = document.querySelector(".mermaid-diagram");
+      const tools = document.querySelector(".milkdown-code-block:has(.mermaid-diagram) .tools");
+      const diagramStyle = diagram ? getComputedStyle(diagram) : null;
+      const toolsStyle = tools ? getComputedStyle(tools) : null;
+      return {
+        diagramZ: diagramStyle?.zIndex ?? null,
+        diagramIsolation: diagramStyle?.isolation ?? null,
+        toolsZ: toolsStyle?.zIndex ?? null,
+      };
+    });
+    expect(stackLevels).toEqual({ diagramZ: "0", diagramIsolation: "isolate", toolsZ: "2" });
+
+    await page.getByTestId("btn-files-top").click();
+    await page.getByTestId("new-post").click();
+    const dialog = page.getByTestId("dialog-new-doc");
+    await expect(dialog).toBeVisible();
+    const dialogAbove = await page.evaluate(() => {
+      const backdrop = document.querySelector(".modal-backdrop");
+      const diagram = document.querySelector(".mermaid-diagram");
+      if (!backdrop || !diagram) return { ok: false, reason: "missing nodes" };
+      const backdropZ = Number(getComputedStyle(backdrop).zIndex);
+      const diagramZ = Number(getComputedStyle(diagram).zIndex);
+      const rect = backdrop.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return {
+        ok: backdropZ > diagramZ && Boolean(top && (backdrop === top || backdrop.contains(top))),
+        backdropZ,
+        diagramZ,
+        hit: top instanceof HTMLElement ? top.className : top?.tagName ?? null,
+      };
+    });
+    expect(dialogAbove.ok, `dialog not above mermaid: ${JSON.stringify(dialogAbove)}`).toBeTruthy();
+  });
+
   test("creates a post from the in-app dialog", async ({ page }) => {
     await boot(page);
     await page.getByTestId("btn-files-top").click();
@@ -317,10 +476,24 @@ graph LR
     await expect(help).not.toContainText("仓库名");
     await page.getByTestId("domain-help-close").click();
     await expect(help).toHaveCount(0);
-    await page.getByTestId("cfg-custom-domain").fill("https://bad.example.com");
+
+    // Blur with invalid hostname must show inline format error (g2.1 / g2.3).
+    const domainInput = page.getByTestId("cfg-custom-domain");
+    await domainInput.fill("https://bad.example.com");
+    await domainInput.blur();
+    await expect(page.getByTestId("cfg-domain-error")).toBeVisible();
+    await expect(page.getByTestId("cfg-domain-error")).toContainText("主机名");
+    await expect(domainInput).toHaveAttribute("aria-invalid", "true");
+
+    // Save still blocked while invalid (g2.1).
     await page.getByTestId("settings-save").click();
     await expect(page.getByTestId("cfg-domain-error")).toBeVisible();
-    await page.getByTestId("cfg-custom-domain").fill("blog.example.com");
+
+    // Fixing while error shown re-validates and clears error (g2.2).
+    await domainInput.fill("blog.example.com");
+    await expect(page.getByTestId("cfg-domain-error")).toHaveCount(0);
+    await expect(domainInput).toHaveAttribute("aria-invalid", "false");
+
     await title.fill("E2E Site");
     const avatarBuffer = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -592,5 +765,44 @@ graph LR
     await page.getByTestId("publish-back").click();
     await expect(page.getByTestId("publish-page")).toHaveCount(0);
     await expect(page.getByTestId("title-input")).toBeVisible();
+  });
+});
+
+/**
+ * Native page context menu: defaultPrevented means the app hid 返回/刷新/另存为/打印.
+ * plan g2.1 / g2.2 — shell hide vs editable allow.
+ */
+async function contextMenuDefaultPrevented(page: Page, testId: string): Promise<boolean> {
+  return page.getByTestId(testId).evaluate((node) => {
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, view: window });
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+}
+
+test.describe("native page context menu", () => {
+  test("hides native menu on app chrome (plan g2.1)", async ({ page }) => {
+    await boot(page);
+    // Top bar chrome and sidebar site title are non-editable shell surfaces.
+    expect(await contextMenuDefaultPrevented(page, "btn-files-top")).toBe(true);
+    expect(await contextMenuDefaultPrevented(page, "sidebar-site-title")).toBe(true);
+  });
+
+  test("allows native menu on title input and editors (plan g2.2)", async ({ page }) => {
+    await boot(page);
+    expect(await contextMenuDefaultPrevented(page, "title-input")).toBe(false);
+
+    await expect(page.getByTestId("wysiwyg-editor")).toBeVisible();
+    expect(await contextMenuDefaultPrevented(page, "wysiwyg-editor")).toBe(false);
+
+    await page.getByTestId("btn-source").click();
+    await expect(page.getByTestId("source-editor")).toBeVisible();
+    await expect(page.locator(".cm-editor").first()).toBeVisible();
+    const sourceAllowed = await page.locator(".cm-editor").first().evaluate((node) => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, view: window });
+      node.dispatchEvent(event);
+      return !event.defaultPrevented;
+    });
+    expect(sourceAllowed).toBe(true);
   });
 });

@@ -174,6 +174,24 @@ button {
   min-width: 0;
 }
 
+/* Align「如何配置」with settings ghost (avatar upload / change repo). */
+.settings-domain-row .ghost {
+  flex: none;
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 55%, var(--paper));
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settings-domain-row .ghost:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--paper));
+}
+
 .settings-domain-error {
   margin: 8px 0 0;
   font-size: 12px;
@@ -184,6 +202,15 @@ button {
   width: min(540px, 100%);
   max-height: 92vh;
   overflow: auto;
+}
+
+/* Domain help「知道了」: larger hit target than compact toolbar modal buttons. */
+.domain-help-modal .modal-actions .primary {
+  min-height: 38px;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 999px;
 }
 
 .domain-help-steps {
@@ -828,9 +855,13 @@ li + li > .outline-item.level-1 {
   overflow: visible;
 }
 
+/* Mermaid 11 flowchart labels live in SVG foreignObject HTML and can escape
+   the preview stacking context. Keep chrome (language / Copy / Edit) above the
+   isolated diagram without rivaling global overlays (drawer 20, modal 30,
+   toast 40). Crepe's .language-picker already uses z-index: 999. */
 .crepe-host .milkdown .milkdown-code-block .tools {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   min-height: 28px;
   margin: 0 0 6px;
 }
@@ -843,6 +874,12 @@ li + li > .outline-item.level-1 {
 .crepe-host .milkdown .milkdown-code-block .language-picker {
   top: 36px;
   left: 16px;
+}
+
+.crepe-host .milkdown .milkdown-code-block .preview-panel {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .crepe-host .milkdown .milkdown-code-block .cm-editor {
@@ -1073,6 +1110,11 @@ li + li > .outline-item.level-1 {
   margin: 0 0 1.25em;
   overflow: auto;
   text-align: center;
+  /* Contain Mermaid foreignObject HTML so node labels cannot paint over the
+     code-block chrome or adjacent preview content (WYSIWYG + source pane). */
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .mermaid-diagram svg {

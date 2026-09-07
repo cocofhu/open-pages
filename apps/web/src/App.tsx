@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DEFAULT_SITE_CONFIG,
   applySiteConfigToYaml,
   BUILTIN_ADDONS,
   defaultFrontMatter,
@@ -29,6 +30,7 @@ import { BootScreen } from "./components/BootScreen";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { RepoOnboarding } from "./components/RepoOnboarding";
 import { errorMessage } from "./lib/errors";
+import { guardNativeContextMenu } from "./lib/page-context-menu";
 import type { SettingsDraft } from "./components/SettingsPage";
 import { DocMetaPanel } from "./components/DocMetaPanel";
 import { MarkdownEditor, SourceEditor, type SourceEditorHandle } from "./components/Editor";
@@ -44,9 +46,11 @@ import { TopBar, type EditorMode } from "./components/TopBar";
 import type { AuthUser } from "./lib/api";
 import { applyRepoSnapshot, refreshOriginFromLive, resetBlankSite } from "./lib/repo-sync";
 import { bindingAfterPublish, resolvePublishTarget } from "./lib/publish-target";
+import { logoutWipeConfirmCopy } from "./lib/repo-onboarding-copy";
 import { isTauri, platform } from "./lib/platform";
 import { type OutlineHeading } from "./lib/outline";
 import {
+  clearLocalSiteData,
   deleteFile,
   listFiles,
   loadConfig,
@@ -105,6 +109,8 @@ export function App() {
   const [themePreviewError, setThemePreviewError] = useState<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsLeaveOpen, setSettingsLeaveOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const settingsDraftRef = useRef<SettingsDraft | null>(null);
   const settingsDirtyRef = useRef(false);
   const themePreviewRequestRef = useRef(0);
@@ -746,7 +752,35 @@ export function App() {
   };
 
   const logout = async () => {
-    setUser(await platform.logout());
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    try {
+      // Plan g2.2: wipe workspace while session still owns it, then clear local + auth.
+      await platform.resetSite(siteId()).catch(() => undefined);
+      await clearLocalSiteData();
+      const signedOut = await platform.logout();
+      setUser(signedOut?.login ? null : signedOut);
+      setGithub(undefined);
+      setConfig({ ...DEFAULT_SITE_CONFIG });
+      setFiles([]);
+      setActivePath(null);
+      setBody("");
+      setSource("");
+      setMatter(defaultFrontMatter());
+      setRawYaml(defaultHexoConfigYaml(DEFAULT_SITE_CONFIG));
+      setThemeSettings({});
+      setThemeYaml("");
+      setPublishUrl(null);
+      setPublishStatus("");
+      setRoute("files");
+      // Plan g2.3: next open must pick/create a repo again.
+      setBoot({ phase: "pick-repo", label: "", percent: 0 });
+    } catch (error) {
+      setToast({ kind: "error", text: errorMessage(error, "退出清空失败，请重试") });
+    } finally {
+      setLogoutBusy(false);
+      setLogoutConfirmOpen(false);
+    }
   };
 
   const refreshUser = useCallback(() => {
@@ -771,7 +805,7 @@ export function App() {
         // string (incl. "") = settings target state; omit when never configured → preserve remote
         ...(typeof github?.customDomain === "string" ? { customDomain: github.customDomain } : {}),
       });
-      // Plan g2.3: refresh local origin only after successful publish; failures leave baseline untouched.
+      // Refresh local origin only after successful publish so Settings shows「已是最新版」; failures leave baseline untouched.
       try {
         await refreshOriginFromLive();
       } catch (originError) {
@@ -873,6 +907,7 @@ export function App() {
       className={sidebarVisible ? "shell" : "shell sidebar-collapsed"}
       data-testid="app-shell"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
+      onContextMenu={guardNativeContextMenu}
     >
       {sidebarVisible && (
         <button
@@ -913,7 +948,7 @@ export function App() {
           onFiles={() => go("files")}
           onPublish={() => go("publish-github")}
           onLogin={login}
-          onLogout={() => void logout()}
+          onLogout={() => setLogoutConfirmOpen(true)}
         />
         <div className="editor-pane" data-testid="editor-pane">
           {editable && mode !== "source" && (
@@ -1106,6 +1141,17 @@ export function App() {
           pendingRouteRef.current = null;
         }}
         onConfirm={discardSettingsAndLeave}
+      />
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        title={logoutWipeConfirmCopy().title}
+        message={logoutWipeConfirmCopy().message}
+        confirmLabel={logoutBusy ? "正在清空…" : logoutWipeConfirmCopy().confirmLabel}
+        danger
+        onClose={() => {
+          if (!logoutBusy) setLogoutConfirmOpen(false);
+        }}
+        onConfirm={() => void logout()}
       />
       <PreviewOverlay
         open={Boolean(preview)}

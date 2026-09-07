@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WELCOME_POST_PATH } from "@open-pages/shared";
+import { WELCOME_POST_PATH, originSnapshotPath } from "@open-pages/shared";
 import {
   blankSiteSeedFiles,
   isLiveImportPath,
@@ -8,7 +8,7 @@ import {
   originSnapshotsFromLive,
   unpublishedRepoChangesFromFiles,
 } from "./repo-sync.js";
-import { switchRepoConfirmCopy } from "./repo-onboarding-copy.js";
+import { logoutWipeConfirmCopy, switchRepoConfirmCopy } from "./repo-onboarding-copy.js";
 
 test("livePathsMissingFromSnapshot drops posts absent from the new repo", () => {
   const existing = [
@@ -117,4 +117,61 @@ test("switchRepoConfirmCopy names the new repo and blank reset", () => {
   assert.match(copy.message, /alice\/fresh/);
   assert.match(copy.message, /空白站点/);
   assert.match(copy.message, /不会带到新仓库/);
+});
+
+// --- Plan g1.4: origin baseline after publish / blank seed ---
+
+test("originSnapshotsFromLive maps editable files under source/origin (g1.1)", () => {
+  const live = [
+    { path: "_config.yml", content: "title: A", encoding: "utf8" as const },
+    { path: WELCOME_POST_PATH, content: "# hi", encoding: "utf8" as const },
+    { path: "README.md", content: "ignore", encoding: "utf8" as const },
+  ];
+  const origins = originSnapshotsFromLive(live);
+  assert.deepEqual(
+    origins.map((file) => file.path).sort(),
+    [originSnapshotPath("_config.yml"), originSnapshotPath(WELCOME_POST_PATH)].sort(),
+  );
+  assert.equal(origins.find((file) => file.path === originSnapshotPath("_config.yml"))?.content, "title: A");
+});
+
+test("blank seed + matching origin reports no unpublished changes (g1.2)", () => {
+  const seeds = blankSiteSeedFiles();
+  const files = [...seeds, ...originSnapshotsFromLive(seeds)];
+  assert.equal(unpublishedRepoChangesFromFiles(files), false);
+});
+
+test("no origin baseline with live files is unpublished (g1.2 forever-warn)", () => {
+  assert.equal(unpublishedRepoChangesFromFiles(blankSiteSeedFiles()), true);
+});
+
+test("publish-success baseline then edit returns unpublished (g1.4)", () => {
+  const seeds = blankSiteSeedFiles();
+  const baseline = [...seeds, ...originSnapshotsFromLive(seeds)];
+  assert.equal(unpublishedRepoChangesFromFiles(baseline), false);
+
+  const edited = baseline.map((file) =>
+    file.path === WELCOME_POST_PATH ? { ...file, content: `${file.content}\nextra` } : file,
+  );
+  assert.equal(unpublishedRepoChangesFromFiles(edited), true);
+});
+
+test("failed publish keeps old origin (g1.4) — comparing unchanged files stays dirty if origin differs", () => {
+  const live = blankSiteSeedFiles();
+  const staleOrigin = originSnapshotsFromLive(live).map((file) => ({
+    ...file,
+    content: `${file.content}\nOLD`,
+  }));
+  assert.equal(unpublishedRepoChangesFromFiles([...live, ...staleOrigin]), true);
+});
+
+// --- Plan g2.4: logout confirm copy ---
+
+test("logoutWipeConfirmCopy explains local wipe and keeps GitHub (g2.1)", () => {
+  const copy = logoutWipeConfirmCopy();
+  assert.equal(copy.title, "退出并清空本地？");
+  assert.equal(copy.confirmLabel, "退出并清空");
+  assert.match(copy.message, /绑定/);
+  assert.match(copy.message, /删除本机/);
+  assert.match(copy.message, /不会删除.*GitHub/);
 });
