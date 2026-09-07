@@ -28,15 +28,45 @@ case "$(uname -m)" in
 esac
 
 echo "Resolving latest release of $REPO ..."
-DMG_URL=$(
-  curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
-    sed -n 's/.*"browser_download_url": *"\([^"]*\)".*/\1/p' |
-    grep -- "$ASSET_SUFFIX" |
-    head -n 1
-)
+
+# api.github.com allows only 60 unauthenticated requests per hour per IP, and a
+# throttled installer must not look like a missing release. Resolve the tag and
+# its assets from github.com, which is not rate limited, and keep the API as a
+# fallback for the rare case the release pages change shape.
+DMG_URL=""
+TAG_URL=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" || true)
+TAG=${TAG_URL##*/}
+
+if [ -n "$TAG" ] && [ "$TAG" != "releases" ] && [ "$TAG" != "latest" ]; then
+  DMG_URL=$(
+    curl -fsSL "https://github.com/$REPO/releases/expanded_assets/$TAG" |
+      tr '"' '\n' |
+      grep '/releases/download/' |
+      grep -- "$ASSET_SUFFIX" |
+      head -n 1
+  )
+  case "$DMG_URL" in
+    /*) DMG_URL="https://github.com$DMG_URL" ;;
+  esac
+fi
 
 if [ -z "$DMG_URL" ]; then
-  echo "No *_$ASSET_SUFFIX asset found in the latest release of $REPO." >&2
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    RELEASE_JSON=$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/releases/latest" || true)
+  else
+    RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" || true)
+  fi
+  DMG_URL=$(
+    printf '%s' "$RELEASE_JSON" |
+      sed -n 's/.*"browser_download_url": *"\([^"]*\)".*/\1/p' |
+      grep -- "$ASSET_SUFFIX" |
+      head -n 1
+  )
+fi
+
+if [ -z "$DMG_URL" ]; then
+  echo "Could not resolve a *_$ASSET_SUFFIX asset from the latest release of $REPO." >&2
+  echo "Download it manually from https://github.com/$REPO/releases/latest" >&2
   exit 1
 fi
 
