@@ -84,8 +84,17 @@ async function previewProblem(page: Page, appOrigin: string): Promise<string | n
     return `preview loaded from the editor origin ${appOrigin}`;
   }
 
-  const measured = (await frame.evaluate(MEASURE_VISIBLE_TEXT).catch(() => null)) as Measured | null;
-  if (!measured) return "preview frame was not evaluable yet";
+  // A frame caught mid-navigation rejects here and the next poll succeeds, so
+  // this stays a reason rather than a throw. The message is carried through
+  // because a theme that never finishes parsing fails the same way from the
+  // outside, and only the error says which one happened.
+  let measured: Measured;
+  try {
+    measured = (await frame.evaluate(MEASURE_VISIBLE_TEXT)) as Measured;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    return `preview frame was not evaluable yet: ${detail}`;
+  }
   const verdict = previewVerdict(measured);
   return verdict ? `${verdict} — ${describeMeasured(measured)}` : null;
 }

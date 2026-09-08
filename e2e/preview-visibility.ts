@@ -123,6 +123,20 @@ export const MEASURE_VISIBLE_TEXT = `(() => {
   let lowContrastChars = 0;
   let transparentChars = 0;
   let totalChars = 0;
+  // A parser-blocking <head> resource that never answers leaves the document
+  // stuck before <body>. Reported as an empty first screen, because throwing
+  // here reads as "the frame is not ready" and hides a page that never renders.
+  if (!document.body) {
+    return {
+      visibleChars: 0,
+      lowContrastChars: 0,
+      transparentChars: 0,
+      totalChars: 0,
+      overlays: [],
+      topAtCenter: "none",
+      blockers: ["document has no body: still parsing <head>"],
+    };
+  }
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const counted = new Set();
 

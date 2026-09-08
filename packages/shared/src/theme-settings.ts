@@ -600,6 +600,13 @@ export function serializeThemeSettings(
     const scheme = resolvedColorScheme(theme, values);
     setYamlPath(tree, "darkmode", scheme !== "light");
   }
+  // ParticleX pulls a polyfill bundle from a China-only mirror of the retired
+  // polyfill.io service, as a parser-blocking script in <head>. Where that host
+  // is unreachable the document never reaches <body>, so the whole site stays
+  // blank instead of degrading. Nothing the theme uses needs it.
+  if (theme === "particlex") {
+    setYamlPath(tree, "polyfill.enable", false);
+  }
   return [`# Open Pages · ${theme}`, serializeYaml(tree), ""].join("\n");
 }
 
