@@ -118,6 +118,7 @@ export function App() {
   const previewReloadRef = useRef<() => void>(() => {});
   const pendingRouteRef = useRef<AppRoute | null>(null);
   const themeReadyRef = useRef(false);
+  const loadedThemeRef = useRef<ThemeId | null>(null);
   const routeRef = useRef(route);
   const writeChainRef = useRef(Promise.resolve());
   const bindGenRef = useRef(0);
@@ -452,8 +453,13 @@ export function App() {
   useEffect(() => {
     if (!config) return;
     let cancelled = false;
-    themeReadyRef.current = false;
-    setThemeReady(false);
+    // Installing or updating an addon gives fieldsForTheme a new identity. Only a
+    // real theme switch may blank themeReady: it unmounts the settings page and
+    // would drop the open draft mid-update.
+    if (loadedThemeRef.current !== config.theme) {
+      themeReadyRef.current = false;
+      setThemeReady(false);
+    }
     void (async () => {
       const path = themeConfigPath(config.theme);
       const existing = await readFile(path);
@@ -474,6 +480,7 @@ export function App() {
           ? existing.content
           : serializeThemeSettings(config.theme, values, fields),
       );
+      loadedThemeRef.current = config.theme;
       themeReadyRef.current = true;
       setThemeReady(true);
     })();
