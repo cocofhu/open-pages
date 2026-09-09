@@ -2721,6 +2721,53 @@ li + li > .outline-item.level-1 {
   grid-column: 1 / -1;
 }
 
+.addon-spin {
+  animation: publish-spin 0.9s linear infinite;
+}
+
+/* Theme cards sit in an equal-height grid, so update feedback overlays the card
+   bottom instead of joining the flow and resizing every row. */
+.theme-pick-progress,
+.theme-pick-error {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, var(--line));
+  background: color-mix(in srgb, #fff 92%, var(--paper));
+  box-shadow: var(--shadow);
+}
+
+.theme-pick-progress {
+  gap: 4px;
+  padding: 7px 9px;
+}
+
+.theme-pick-progress .addon-progress-text {
+  font-size: 11px;
+}
+
+.theme-pick-error {
+  margin: 0;
+  font-size: 12px;
+}
+
+.theme-pick-wrap.updating .theme-pick-card {
+  border-color: color-mix(in srgb, var(--ink) 45%, var(--line));
+  opacity: 0.72;
+}
+
+.theme-current-progress {
+  margin-top: 10px;
+}
+
+.theme-current-error {
+  margin: 8px 0 0;
+}
+
 .addon-row .error-text {
   color: var(--danger);
   margin: 0;
@@ -3688,6 +3735,7 @@ li + li > .outline-item.level-1 {
 
 @media (prefers-reduced-motion: reduce) {
   .publish-repo-spinner,
+  .addon-spin,
   .publish-repo-check.checking .addon-progress-track i {
     animation: none;
   }

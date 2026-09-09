@@ -152,6 +152,10 @@ export function SettingsPage({
   const [updateStep, setUpdateStep] = useState<InstallStep | null>(null);
   const [updateError, setUpdateError] = useState("");
   const [updateErrorId, setUpdateErrorId] = useState<string | null>(null);
+  const [updatingThemeId, setUpdatingThemeId] = useState<string | null>(null);
+  const [themeUpdateStep, setThemeUpdateStep] = useState<InstallStep | null>(null);
+  const [themeUpdateError, setThemeUpdateError] = useState("");
+  const [themeUpdateErrorId, setThemeUpdateErrorId] = useState<string | null>(null);
   const [openThemeMenuId, setOpenThemeMenuId] = useState<string | null>(null);
   const [selectedPlugin, setSelectedPlugin] = useState<AddonManifest | null>(null);
   const [pluginValues, setPluginValues] = useState<ThemeSettings>({});
@@ -366,16 +370,18 @@ export function SettingsPage({
   };
 
   const submitThemeUpdate = async (id: string) => {
-    setAddonBusy(true);
-    setAddonError("");
-    setAddonStep({ label: "正在准备", percent: 0 });
+    setUpdatingThemeId(id);
+    setThemeUpdateError("");
+    setThemeUpdateErrorId(null);
+    setThemeUpdateStep({ label: "正在准备", percent: 0 });
     try {
-      await onUpdateAddon(id, setAddonStep);
+      await onUpdateAddon(id, setThemeUpdateStep);
     } catch (error) {
-      setAddonError(error instanceof Error ? error.message : "更新失败");
+      setThemeUpdateError(error instanceof Error ? error.message : "更新失败");
+      setThemeUpdateErrorId(id);
     } finally {
-      setAddonBusy(false);
-      window.setTimeout(() => setAddonStep(null), 1_200);
+      setUpdatingThemeId(null);
+      window.setTimeout(() => setThemeUpdateStep(null), 1_200);
     }
   };
 
@@ -396,6 +402,7 @@ export function SettingsPage({
   };
 
   const pluginGateBusy = addonBusy || Boolean(updatingPluginId);
+  const themeGateBusy = addonBusy || Boolean(updatingThemeId);
 
   const selectPlugin = async (plugin: AddonManifest) => {
     setSelectedPlugin(plugin);
@@ -614,6 +621,7 @@ export function SettingsPage({
                 busy={addonBusy}
                 error={addonError}
                 step={addonStep}
+                disabled={Boolean(updatingThemeId)}
                 onSource={setAddonSource}
                 onInstall={() => void submitAddon("theme")}
               />
@@ -622,13 +630,19 @@ export function SettingsPage({
                   const swatch = item.tint ?? THEME_TINT[item.id] ?? tintFromId(item.id);
                   const on = draftConfig.theme === item.id;
                   const showCluster = on || !item.builtin;
+                  const updating = updatingThemeId === item.id;
+                  const rowError = themeUpdateErrorId === item.id ? themeUpdateError : "";
                   return (
-                    <div className="theme-pick-wrap" key={item.id}>
+                    <div
+                      className={updating ? "theme-pick-wrap updating" : "theme-pick-wrap"}
+                      key={item.id}
+                    >
                       <button
                         type="button"
                         className={on ? "theme-pick-card on" : "theme-pick-card"}
                         data-testid={`theme-${item.id}`}
                         title={item.description}
+                        disabled={updating}
                         onClick={() => pickTheme(item.id)}
                       >
                         <i style={{ background: `linear-gradient(135deg, ${swatch.ink}, ${swatch.paper})` }} />
@@ -644,13 +658,30 @@ export function SettingsPage({
                               themeId={item.id}
                               open={openThemeMenuId === item.id}
                               onOpenChange={(next) => setOpenThemeMenuId(next ? item.id : null)}
-                              busy={addonBusy}
+                              busy={themeGateBusy}
                               inUse={on}
                               onUpdate={() => void submitThemeUpdate(item.id)}
                               onRemove={() => void mutateAddon(() => onRemoveAddon(item.id))}
                             />
                           ) : null}
                         </div>
+                      ) : null}
+                      {updating ? (
+                        <AddonUpdateProgress
+                          testId={`theme-update-progress-${item.id}`}
+                          className="theme-pick-progress"
+                          ariaLabel="更新主题进度"
+                          fallbackLabel="更新中…"
+                          step={themeUpdateStep}
+                        />
+                      ) : null}
+                      {rowError ? (
+                        <p
+                          className="hint error-text theme-pick-error"
+                          data-testid={`theme-update-error-${item.id}`}
+                        >
+                          {rowError}
+                        </p>
                       ) : null}
                     </div>
                   );
@@ -661,16 +692,40 @@ export function SettingsPage({
                 <h4>{meta.label}</h4>
                 <p className="hint">{meta.description}</p>
                 {!meta.builtin ? (
-                  <button
-                    type="button"
-                    className="primary icon-label"
-                    disabled={addonBusy}
-                    data-testid={`theme-update-current-${meta.id}`}
-                    onClick={() => void submitThemeUpdate(meta.id)}
-                  >
-                    <ArrowPathIcon className="ui-icon" aria-hidden="true" />
-                    更新主题
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="primary icon-label"
+                      disabled={themeGateBusy}
+                      data-testid={`theme-update-current-${meta.id}`}
+                      onClick={() => void submitThemeUpdate(meta.id)}
+                    >
+                      <ArrowPathIcon
+                        className={
+                          updatingThemeId === meta.id ? "ui-icon addon-spin" : "ui-icon"
+                        }
+                        aria-hidden="true"
+                      />
+                      {updatingThemeId === meta.id ? "更新中…" : "更新主题"}
+                    </button>
+                    {updatingThemeId === meta.id ? (
+                      <AddonUpdateProgress
+                        testId={`theme-update-progress-current-${meta.id}`}
+                        className="theme-current-progress"
+                        ariaLabel="更新主题进度"
+                        fallbackLabel="更新中…"
+                        step={themeUpdateStep}
+                      />
+                    ) : null}
+                    {themeUpdateErrorId === meta.id && themeUpdateError ? (
+                      <p
+                        className="hint error-text theme-current-error"
+                        data-testid={`theme-update-error-current-${meta.id}`}
+                      >
+                        {themeUpdateError}
+                      </p>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
               <ThemeSettingsForm
@@ -787,7 +842,10 @@ export function SettingsPage({
                             data-testid={`plugin-update-${plugin.id}`}
                             onClick={() => void submitPluginUpdate(plugin.id)}
                           >
-                            <ArrowPathIcon className="ui-icon" aria-hidden="true" />
+                            <ArrowPathIcon
+                              className={updating ? "ui-icon addon-spin" : "ui-icon"}
+                              aria-hidden="true"
+                            />
                             {updating ? "更新中…" : "更新"}
                           </button>
                           <button
@@ -803,7 +861,13 @@ export function SettingsPage({
                         </div>
                       ) : null}
                       {updating ? (
-                        <PluginUpdateProgress pluginId={plugin.id} step={updateStep} />
+                        <AddonUpdateProgress
+                          testId={`plugin-update-progress-${plugin.id}`}
+                          className="addon-row-progress"
+                          ariaLabel="更新插件进度"
+                          fallbackLabel="更新中…"
+                          step={updateStep}
+                        />
                       ) : null}
                       {rowError ? (
                         <p
@@ -1151,29 +1215,35 @@ function AddonInstaller({
   );
 }
 
-function PluginUpdateProgress({
-  pluginId,
+function AddonUpdateProgress({
+  testId,
+  className,
+  ariaLabel,
+  fallbackLabel,
   step,
 }: {
-  pluginId: string;
+  testId: string;
+  className: string;
+  ariaLabel: string;
+  fallbackLabel: string;
   step: InstallStep | null;
 }) {
   const percent = useSmoothedPercent(step?.percent ?? 0, true);
   return (
     <div
-      className="addon-progress addon-row-progress"
-      data-testid={`plugin-update-progress-${pluginId}`}
+      className={`addon-progress ${className}`}
+      data-testid={testId}
       role="progressbar"
       aria-valuenow={percent}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-label="更新插件进度"
+      aria-label={ariaLabel}
     >
       <div className="addon-progress-track">
         <i style={{ width: `${Math.max(percent, 4)}%` }} />
       </div>
       <div className="addon-progress-text">
-        <span>{step?.label || "更新中…"}</span>
+        <span>{step?.label || fallbackLabel}</span>
         <em>{percent}%</em>
       </div>
     </div>
